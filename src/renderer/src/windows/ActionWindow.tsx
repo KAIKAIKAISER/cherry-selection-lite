@@ -12,8 +12,9 @@ import {
   AlertCircle,
   Square,
 } from 'lucide-react';
-import { ActionPrompt, AppConfig, SelectionPayload } from '../types';
+import { AppConfig, SelectionPayload } from '../types';
 import { MarkdownRenderer } from '../components/MarkdownRenderer';
+import { ActionIcon } from '../components/ActionIcon';
 
 export const ActionWindow: React.FC = () => {
   const [config, setConfig] = useState<AppConfig | null>(null);
@@ -26,7 +27,7 @@ export const ActionWindow: React.FC = () => {
   const [copied, setCopied] = useState<boolean>(false);
   const [expandQuote, setExpandQuote] = useState<boolean>(false);
   const [followUpText, setFollowUpText] = useState<string>('');
-  const [selectedModel, setSelectedModel] = useState<string>('');
+  const [selectedModelName, setSelectedModelName] = useState<string>('Hunyuan MT2 Pro');
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -34,10 +35,8 @@ export const ActionWindow: React.FC = () => {
     window.electronAPI.getConfig().then((cfg) => {
       setConfig(cfg);
       setIsPinned(cfg.actionWindow.autoPin);
-      setSelectedModel(cfg.provider.model || 'deepseek-chat');
     });
 
-    // Listen for action triggers
     const cleanupAction = window.electronAPI.onActionStart(({ actionId, customPrompt, selection: sel }) => {
       setCurrentActionId(actionId);
       setSelection(sel);
@@ -45,14 +44,11 @@ export const ActionWindow: React.FC = () => {
       setErrorMessage(null);
       setFollowUpText('');
 
-      // Auto start generation
       startGeneration(actionId, sel, customPrompt);
     });
 
-    // Listen to LLM streaming events
     const cleanupChunk = window.electronAPI.onLlmChunk((chunk) => {
       setResultText((prev) => prev + chunk);
-      // Auto scroll to bottom
       if (scrollRef.current) {
         scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
       }
@@ -73,7 +69,7 @@ export const ActionWindow: React.FC = () => {
       cleanupDone();
       cleanupError();
     };
-  }, [config?.actions, selectedModel]);
+  }, [config]);
 
   const startGeneration = (
     actionId: string,
@@ -91,16 +87,23 @@ export const ActionWindow: React.FC = () => {
       prompt = customPromptOverride.replace('{{text}}', sel.text);
     } else {
       const action = config?.actions?.find((a) => a.id === actionId);
-      if (action) {
+      if (action && action.prompt) {
         prompt = action.prompt.replace('{{text}}', sel.text);
       } else {
         prompt = `请对以下内容进行处理：\n\n${sel.text}`;
       }
     }
 
+    // Display model name
+    if (actionId === 'translate' && config?.defaultTranslateModel) {
+      setSelectedModelName(config.defaultTranslateModel.modelName);
+    } else if (config?.defaultAssistantModel) {
+      setSelectedModelName(config.defaultAssistantModel.modelName);
+    }
+
     window.electronAPI.startChatStream({
       prompt,
-      modelOverride: selectedModel,
+      actionId,
     });
   };
 
@@ -114,7 +117,7 @@ export const ActionWindow: React.FC = () => {
 
     window.electronAPI.startChatStream({
       prompt: followPrompt,
-      modelOverride: selectedModel,
+      actionId: currentActionId,
     });
     setFollowUpText('');
   };
@@ -138,34 +141,27 @@ export const ActionWindow: React.FC = () => {
   };
 
   const currentAction = config?.actions?.find((a) => a.id === currentActionId);
-  const actionTitle = currentAction ? currentAction.name : 'AI 助理';
+  const actionTitle = currentAction ? currentAction.name : 'AI 助手';
 
   return (
-    <div className="w-screen h-screen p-2 flex flex-col box-border">
-      <div className="glass-panel shadow-window rounded-2xl flex-1 flex flex-col overflow-hidden border border-zinc-200/80 dark:border-zinc-800/80">
+    <div className="w-screen h-screen p-2 flex flex-col box-border bg-transparent">
+      <div className="glass-panel shadow-window rounded-2xl flex-1 flex flex-col overflow-hidden border border-zinc-200/90 dark:border-zinc-800/90 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-md">
         {/* Header Bar */}
         <div className="drag-region flex items-center justify-between px-3.5 py-2.5 bg-zinc-50/80 dark:bg-zinc-900/80 border-b border-zinc-200/60 dark:border-zinc-800/60 select-none">
           <div className="flex items-center gap-2">
-            <span className="text-base select-none">🍒</span>
-            <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-100">
-              {actionTitle}
-            </span>
+            <span className="text-sm select-none">🍒</span>
+            <div className="flex items-center gap-1.5 font-semibold text-xs text-zinc-800 dark:text-zinc-100">
+              <ActionIcon id={currentActionId} className="w-3.5 h-3.5 text-cherry-500" />
+              <span>{actionTitle}</span>
+            </div>
           </div>
 
           <div className="no-drag flex items-center gap-1.5">
-            {/* Model Selector Tag */}
-            <select
-              value={selectedModel}
-              onChange={(e) => setSelectedModel(e.target.value)}
-              className="text-[11px] bg-zinc-200/70 dark:bg-zinc-800/70 text-zinc-700 dark:text-zinc-300 rounded px-1.5 py-0.5 border-0 focus:ring-1 focus:ring-cherry-500 cursor-pointer outline-none"
-            >
-              <option value="deepseek-chat">deepseek-chat</option>
-              <option value="deepseek-reasoner">deepseek-reasoner</option>
-              <option value="gpt-4o-mini">gpt-4o-mini</option>
-              <option value="gpt-4o">gpt-4o</option>
-              <option value="claude-3-5-sonnet">claude-3-5-sonnet</option>
-              <option value="qwen-plus">qwen-plus</option>
-            </select>
+            {/* Model Tag */}
+            <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-zinc-200/60 dark:bg-zinc-800 text-[11px] text-zinc-700 dark:text-zinc-300 font-medium">
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+              <span className="truncate max-w-[120px]">{selectedModelName}</span>
+            </div>
 
             {/* Pin Button */}
             <button
@@ -175,7 +171,7 @@ export const ActionWindow: React.FC = () => {
                   ? 'text-cherry-500 bg-cherry-50 dark:bg-cherry-950/40'
                   : 'text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800'
               }`}
-              title={isPinned ? '取消置顶' : '置顶窗口 (失去焦点时不关闭)'}
+              title={isPinned ? '取消置顶' : '固定窗口 (失去焦点时不关闭)'}
             >
               {isPinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
             </button>
@@ -262,7 +258,7 @@ export const ActionWindow: React.FC = () => {
           {!resultText && isStreaming && (
             <div className="flex items-center gap-2 text-xs text-zinc-400 py-4 justify-center">
               <span className="w-2 h-2 rounded-full bg-cherry-500 animate-ping" />
-              <span>正在思考并生成中...</span>
+              <span>正在生成中...</span>
             </div>
           )}
 
@@ -271,7 +267,7 @@ export const ActionWindow: React.FC = () => {
           )}
         </div>
 
-        {/* Bottom Follow-up & Actions Bar */}
+        {/* Bottom Bar: Follow-up & Regenerate */}
         <div className="p-2.5 bg-zinc-50/70 dark:bg-zinc-900/70 border-t border-zinc-200/60 dark:border-zinc-800/60 flex items-center gap-1.5">
           <input
             type="text"

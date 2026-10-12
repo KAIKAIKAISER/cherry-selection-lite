@@ -13,8 +13,8 @@
     "start": "electron dist-electron/main/index.js",
     "pack:win": "npm run build && electron-builder --win --x64"
   },
-  "dependencies": {},
   "devDependencies": {
+    "@electron/asar": "^4.3.1",
     "@types/node": "^22.10.1",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
@@ -29,5 +29,8 @@
     "tailwindcss": "^3.4.16",
     "typescript": "^5.7.2",
     "vite": "^6.0.3"
+  },
+  "dependencies": {
+    "node-gyp-build": "^4.8.4"
   }
 }

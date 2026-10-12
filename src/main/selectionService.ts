@@ -1,4 +1,5 @@
 import { globalShortcut, screen, clipboard } from 'electron';
+import path from 'path';
 import { SelectionPayload } from './types';
 import { configStore } from './configStore';
 
@@ -6,8 +7,8 @@ type SelectionCallback = (payload: SelectionPayload) => void;
 
 export class SelectionService {
   private onSelectionCallback: SelectionCallback | null = null;
-  private isNativeHookActive = false;
   private nativeHookInstance: any = null;
+  private isCtrlPressed = false;
   private lastSelectedText = '';
   private lastTriggerTime = 0;
 
@@ -21,40 +22,67 @@ export class SelectionService {
 
   private initNativeHook() {
     try {
-      // Attempt to load selection-hook if native addon is compiled and available
-      const SelectionHook = require('selection-hook');
+      // Load prebuilt selection-hook from vendor directory
+      const hookPath = path.resolve(__dirname, '../../vendor/selection-hook');
+      const SelectionHook = require(hookPath);
       this.nativeHookInstance = new SelectionHook();
 
+      // Listen to keyboard events to track Ctrl state
+      this.nativeHookInstance.on('key-down', (keyData: any) => {
+        if (keyData.vkCode === 17 || keyData.vkCode === 162 || keyData.vkCode === 163) {
+          this.isCtrlPressed = true;
+        }
+      });
+
+      this.nativeHookInstance.on('key-up', (keyData: any) => {
+        if (keyData.vkCode === 17 || keyData.vkCode === 162 || keyData.vkCode === 163) {
+          this.isCtrlPressed = false;
+        }
+      });
+
+      // Listen to text selection event
       this.nativeHookInstance.on('text-selection', (data: any) => {
         const config = configStore.get();
         if (!config.selection.enabled) return;
 
-        const text = (data.text || '').trim();
-        if (text.length < config.selection.minSelectionLength) return;
+        // Check trigger mode
+        if (config.selection.triggerMode === 'ctrlkey' && !this.isCtrlPressed) {
+          return;
+        }
+        if (config.selection.triggerMode === 'shortcut') {
+          return; // Handled by global shortcut
+        }
 
-        // Blacklist check
-        if (data.programName && config.selection.blacklist.some(b => data.programName.toLowerCase().includes(b.toLowerCase()))) {
+        const text = (data.text || '').trim();
+        if (!text || text.length === 0) return;
+
+        // Blacklist filtering
+        if (
+          data.programName &&
+          config.selection.filterList &&
+          config.selection.filterList.some((item) =>
+            data.programName.toLowerCase().includes(item.toLowerCase())
+          )
+        ) {
           return;
         }
 
         const point = screen.getCursorScreenPoint();
         this.emitSelection({
           text,
-          x: data.x || point.x,
-          y: data.y || point.y,
+          x: data.x !== undefined && data.x !== -99999 ? data.x : point.x,
+          y: data.y !== undefined && data.y !== -99999 ? data.y : point.y,
           programName: data.programName,
-          source: 'native-hook'
+          source: 'native-hook',
         });
       });
 
       this.nativeHookInstance.start({
         enableClipboard: true,
       });
-      this.isNativeHookActive = true;
-      console.log('[SelectionService] Native selection-hook loaded successfully.');
-    } catch (err) {
-      console.log('[SelectionService] selection-hook native addon not found, fallback hotkey & clipboard mode enabled.');
-      this.isNativeHookActive = false;
+      console.log('[SelectionService] Native selection-hook started successfully.');
+    } catch (err: any) {
+      console.warn('[SelectionService] Native hook load fallback:', err.message);
     }
   }
 
@@ -66,16 +94,12 @@ export class SelectionService {
 
     const shortcut = config.selection.shortcut || 'Alt+S';
     try {
-      const registered = globalShortcut.register(shortcut, () => {
+      globalShortcut.register(shortcut, () => {
         this.triggerFromHotkey();
       });
-      if (registered) {
-        console.log(`[SelectionService] Global shortcut registered: ${shortcut}`);
-      } else {
-        console.warn(`[SelectionService] Failed to register shortcut: ${shortcut}`);
-      }
+      console.log(`[SelectionService] Global shortcut registered: ${shortcut}`);
     } catch (e) {
-      console.error('[SelectionService] Error registering shortcut:', e);
+      console.error('[SelectionService] Failed to register shortcut:', e);
     }
   }
 
@@ -88,7 +112,7 @@ export class SelectionService {
         text,
         x: point.x,
         y: point.y,
-        source: 'hotkey'
+        source: 'hotkey',
       });
     }
   }
@@ -99,7 +123,7 @@ export class SelectionService {
       text: text.trim(),
       x: x !== undefined ? x : point.x,
       y: y !== undefined ? y : point.y,
-      source: 'manual'
+      source: 'manual',
     });
   }
 

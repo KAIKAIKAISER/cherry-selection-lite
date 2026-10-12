@@ -3,6 +3,8 @@ import { contextBridge, ipcRenderer } from 'electron';
 export interface IElectronAPI {
   getConfig: () => Promise<any>;
   setConfig: (config: any) => Promise<any>;
+  testProvider: (data: { baseUrl: string; apiKey: string; modelId?: string }) => Promise<{ success: boolean; message: string }>;
+  syncModels: (data: { baseUrl: string; apiKey: string }) => Promise<{ success: boolean; models: any[] }>;
   hideToolbar: () => void;
   showAction: (data: { actionId: string; customPrompt?: string }) => void;
   hideAction: () => void;
@@ -11,7 +13,7 @@ export interface IElectronAPI {
   copyText: (text: string) => void;
   openExternal: (url: string) => void;
   testTrigger: (text: string) => void;
-  startChatStream: (data: { prompt: string; modelOverride?: string }) => void;
+  startChatStream: (data: { prompt: string; actionId?: string; modelOverride?: string }) => void;
   stopChatStream: () => void;
   onSelectionUpdated: (callback: (payload: any) => void) => () => void;
   onActionStart: (callback: (data: any) => void) => () => void;
@@ -23,6 +25,8 @@ export interface IElectronAPI {
 const api: IElectronAPI = {
   getConfig: () => ipcRenderer.invoke('config:get'),
   setConfig: (config) => ipcRenderer.invoke('config:set', config),
+  testProvider: (data) => ipcRenderer.invoke('provider:test', data),
+  syncModels: (data) => ipcRenderer.invoke('provider:sync-models', data),
   hideToolbar: () => ipcRenderer.send('window:hide-toolbar'),
   showAction: (data) => ipcRenderer.send('window:show-action', data),
   hideAction: () => ipcRenderer.send('window:hide-action'),

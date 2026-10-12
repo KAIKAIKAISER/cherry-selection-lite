@@ -1,0 +1,34 @@
+{
+  "name": "selection-hook",
+  "version": "2.1.1",
+  "description": "The first open-source library for cross-application text selection monitoring and global input event hooks. Works with Node.js and Electron.",
+  "author": "0xfullex",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/0xfullex/selection-hook.git"
+  },
+  "main": "index.js",
+  "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "require": "./index.js",
+      "default": "./index.js"
+    }
+  },
+  "license": "MIT",
+  "dependencies": {
+    "node-addon-api": "^8.4.0",
+    "node-gyp-build": "^4.8.4"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "node-gyp": "^12.1.0",
+    "prebuildify": "^6.0.1",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "gypfile": true
+}
