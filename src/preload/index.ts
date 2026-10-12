@@ -4,7 +4,7 @@ export interface IElectronAPI {
   getConfig: () => Promise<any>;
   setConfig: (config: any) => Promise<any>;
   testProvider: (data: { baseUrl: string; apiKey: string; modelId?: string }) => Promise<{ success: boolean; message: string }>;
-  syncModels: (data: { baseUrl: string; apiKey: string }) => Promise<{ success: boolean; models: any[] }>;
+  syncModels: (data: { baseUrl: string; apiKey: string; providerId?: string }) => Promise<{ success: boolean; models: any[] }>;
   hideToolbar: () => void;
   showAction: (data: { actionId: string; customPrompt?: string }) => void;
   hideAction: () => void;

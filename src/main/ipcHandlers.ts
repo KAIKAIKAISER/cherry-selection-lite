@@ -1,4 +1,6 @@
-import { ipcMain, clipboard, shell } from 'electron';
+import { ipcMain, clipboard, shell, app } from 'electron';
+import fs from 'fs';
+import path from 'path';
 import { windowManager } from './windowManager';
 import { configStore } from './configStore';
 import { selectionService } from './selectionService';
@@ -50,31 +52,82 @@ export function registerIpcHandlers() {
   });
 
   // Provider Sync Models
-  ipcMain.handle('provider:sync-models', async (_event, { baseUrl, apiKey }) => {
-    if (!baseUrl) return { success: false, models: [] };
-    const cleanUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
-    const targetUrl = `${cleanUrl}/models`;
-
-    try {
-      const res = await fetch(targetUrl, {
-        headers: {
-          Authorization: apiKey ? `Bearer ${apiKey}` : '',
-        },
-      });
-      if (res.ok) {
-        const json = await res.json();
-        const rawList = Array.isArray(json.data) ? json.data : Array.isArray(json) ? json : [];
-        const models = rawList.map((m: any) => ({
-          id: m.id || m.name,
-          name: m.id || m.name,
-          enabled: true,
-        }));
-        return { success: true, models };
+  ipcMain.handle('provider:sync-models', async (_event, { baseUrl, apiKey, providerId }) => {
+    // 1. Try live online fetch if baseUrl is provided
+    if (baseUrl) {
+      try {
+        const cleanUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+        const targetUrl = `${cleanUrl}/models`;
+        const res = await fetch(targetUrl, {
+          headers: {
+            Authorization: apiKey ? `Bearer ${apiKey}` : '',
+          },
+        });
+        if (res.ok) {
+          const json = await res.json();
+          const rawList = Array.isArray(json.data) ? json.data : Array.isArray(json) ? json : [];
+          if (rawList.length > 0) {
+            const models = rawList.map((m: any) => ({
+              id: m.id || m.name,
+              name: m.name || m.id,
+              enabled: true,
+              group: m.owned_by || m.ownedBy || 'online',
+            }));
+            return { success: true, models, source: 'online' };
+          }
+        }
+      } catch (e) {
+        // Fall through to registry
       }
-      return { success: false, models: [] };
-    } catch (e) {
-      return { success: false, models: [] };
     }
+
+    // 2. Fallback to builtin registry models.json for this provider
+    try {
+      const candidates = [
+        path.join(process.resourcesPath, 'provider-registry/models.json'),
+        path.join(__dirname, '../../src/resources/provider-registry/models.json'),
+        path.join(app.getAppPath(), 'src/resources/provider-registry/models.json'),
+      ];
+      const foundPath = candidates.find((p) => fs.existsSync(p));
+      if (foundPath) {
+        const data = JSON.parse(fs.readFileSync(foundPath, 'utf8'));
+        const all = data.models || [];
+        const pid = (providerId || '').toLowerCase();
+        const matched = all.filter((m: any) => {
+          const owner = (m.ownedBy || '').toLowerCase();
+          const mid = (m.id || '').toLowerCase();
+          if (pid.includes('deepseek')) return owner === 'deepseek' || mid.includes('deepseek');
+          if (pid.includes('openai')) return owner === 'openai' || mid.includes('gpt');
+          if (pid.includes('silicon')) return mid.includes('deepseek') || mid.includes('qwen') || mid.includes('glm');
+          if (pid.includes('moonshot') || pid.includes('kimi')) return owner === 'moonshot' || mid.includes('moonshot') || mid.includes('kimi');
+          if (pid.includes('zhipu')) return owner === 'zhipu' || mid.includes('glm');
+          if (pid.includes('anthropic') || pid.includes('claude')) return owner === 'anthropic' || mid.includes('claude');
+          if (pid.includes('gemini') || pid.includes('google')) return owner === 'google' || mid.includes('gemini');
+          if (pid.includes('doubao') || pid.includes('bytedance')) return owner === 'bytedance' || mid.includes('doubao');
+          if (pid.includes('minimax')) return owner === 'minimax' || mid.includes('abab');
+          if (pid.includes('tokenhub')) return mid.includes('hunyuan') || mid.includes('deepseek');
+          if (pid.includes('dashscope') || pid.includes('bailian')) return owner === 'alibaba' || mid.includes('qwen');
+          if (pid.includes('baichuan')) return mid.includes('baichuan');
+          if (pid.includes('groq')) return owner === 'groq' || mid.includes('llama');
+          if (pid.includes('ollama')) return true;
+          return owner.includes(pid) || mid.includes(pid);
+        });
+
+        if (matched.length > 0) {
+          const models = matched.slice(0, 40).map((m: any) => ({
+            id: m.id,
+            name: m.name || m.id,
+            enabled: true,
+            group: m.ownedBy || 'registry',
+          }));
+          return { success: true, models, source: 'registry' };
+        }
+      }
+    } catch (e) {
+      // Fallback failed
+    }
+
+    return { success: false, models: [] };
   });
 
   // Window Controls
@@ -163,20 +216,21 @@ export function registerIpcHandlers() {
             },
           ],
           stream: true,
-          temperature: 0.7,
-          max_tokens: 2048,
         }),
         signal: activeAbortController.signal,
       });
 
       if (!response.ok) {
         const errorText = await response.text();
-        event.sender.send('llm:error', `API 请求失败 [${response.status}]: ${errorText.slice(0, 200)}`);
+        event.sender.send(
+          'llm:error',
+          `API 请求失败 [${response.status}]: ${errorText.slice(0, 200)}`
+        );
         return;
       }
 
       if (!response.body) {
-        event.sender.send('llm:error', 'API 响应体为空');
+        event.sender.send('llm:error', '服务端未返回响应体流');
         return;
       }
 

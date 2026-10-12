@@ -3,6 +3,14 @@ import { windowManager } from './windowManager';
 import { selectionService } from './selectionService';
 import { registerIpcHandlers } from './ipcHandlers';
 
+// Process and Memory Optimizations
+app.setName('Cherry Selection Lite');
+app.commandLine.appendSwitch('renderer-process-limit', '2');
+app.commandLine.appendSwitch('disable-features', 'SpareRendererForSitePerProcess,CalculateNativeWinOcclusion');
+app.commandLine.appendSwitch('high-dpi-support', '1');
+app.commandLine.appendSwitch('js-flags', '--max-old-space-size=128');
+app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
+
 // Single instance lock
 const gotTheLock = app.requestSingleInstanceLock();
 
@@ -16,9 +24,8 @@ if (!gotTheLock) {
   app.whenReady().then(() => {
     registerIpcHandlers();
 
-    // Create windows
+    // Lazy load: only create toolbar window and tray at startup
     windowManager.createToolbarWindow();
-    windowManager.createActionWindow();
     windowManager.createTray();
 
     // Wire selection service to window manager

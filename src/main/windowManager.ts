@@ -1,7 +1,47 @@
-import { BrowserWindow, screen, app, Tray, Menu, nativeImage } from 'electron';
+import { BrowserWindow, screen, app, Tray, Menu, nativeImage, NativeImage } from 'electron';
 import path from 'path';
+import fs from 'fs';
 import { configStore } from './configStore';
 import { SelectionPayload } from './types';
+
+function getResourcePath(...subPaths: string[]): string {
+  const possibleRoots = [
+    path.join(process.resourcesPath, ...subPaths),
+    path.join(__dirname, '../../src/resources', ...subPaths),
+    path.join(__dirname, '../../build', ...subPaths),
+    path.join(app.getAppPath(), 'build', ...subPaths),
+    path.join(app.getAppPath(), 'src/resources', ...subPaths),
+  ];
+  for (const p of possibleRoots) {
+    if (fs.existsSync(p)) return p;
+  }
+  return '';
+}
+
+function getAppIcon(): NativeImage | undefined {
+  const target =
+    getResourcePath('icons', 'icon.ico') ||
+    getResourcePath('icon.ico') ||
+    getResourcePath('icons', 'icon.png') ||
+    getResourcePath('icon.png');
+  if (target) {
+    return nativeImage.createFromPath(target);
+  }
+  return undefined;
+}
+
+function getTrayIcon(): NativeImage {
+  const trayPath =
+    getResourcePath('icons', 'tray_icon.png') ||
+    getResourcePath('tray_icon.png') ||
+    getResourcePath('icons', 'icon.png') ||
+    getResourcePath('icon.png');
+  if (trayPath) {
+    const img = nativeImage.createFromPath(trayPath);
+    return img.resize({ width: 16, height: 16 });
+  }
+  return nativeImage.createEmpty();
+}
 
 export class WindowManager {
   public toolbarWindow: BrowserWindow | null = null;
@@ -27,9 +67,14 @@ export class WindowManager {
   public createToolbarWindow() {
     if (this.toolbarWindow && !this.toolbarWindow.isDestroyed()) return;
 
+    const config = configStore.get();
+    const isCompact = config.selection?.compact ?? false;
+    const toolbarWidth = isCompact ? 280 : 500;
+    const toolbarHeight = 48;
+
     this.toolbarWindow = new BrowserWindow({
-      width: 380,
-      height: 52,
+      width: toolbarWidth,
+      height: toolbarHeight,
       frame: false,
       transparent: true,
       resizable: false,
@@ -37,6 +82,7 @@ export class WindowManager {
       skipTaskbar: true,
       show: false,
       focusable: false, // Prevents stealing focus from the active text selection app
+      icon: getAppIcon(),
       webPreferences: {
         preload: this.getPreloadPath(),
         nodeIntegration: false,
@@ -58,8 +104,8 @@ export class WindowManager {
     this.isPinned = config.actionWindow.autoPin;
 
     this.actionWindow = new BrowserWindow({
-      width: config.actionWindow.width || 460,
-      height: config.actionWindow.height || 520,
+      width: config.actionWindow.width || 480,
+      height: config.actionWindow.height || 540,
       frame: false,
       transparent: true,
       resizable: true,
@@ -67,6 +113,7 @@ export class WindowManager {
       skipTaskbar: true,
       show: false,
       opacity: (config.actionWindow.opacity || 100) / 100,
+      icon: getAppIcon(),
       webPreferences: {
         preload: this.getPreloadPath(),
         nodeIntegration: false,
@@ -104,17 +151,21 @@ export class WindowManager {
 
   public createSettingsWindow() {
     if (this.settingsWindow && !this.settingsWindow.isDestroyed()) {
+      this.settingsWindow.show();
       this.settingsWindow.focus();
       return;
     }
 
     this.settingsWindow = new BrowserWindow({
-      width: 820,
-      height: 640,
-      minWidth: 680,
-      minHeight: 500,
+      width: 860,
+      height: 660,
+      minWidth: 720,
+      minHeight: 520,
       title: 'Cherry Selection Lite - 设置',
       autoHideMenuBar: true,
+      transparent: false,
+      backgroundColor: '#ffffff',
+      icon: getAppIcon(),
       webPreferences: {
         preload: this.getPreloadPath(),
         nodeIntegration: false,
@@ -135,11 +186,18 @@ export class WindowManager {
       this.createToolbarWindow();
     }
 
+    const config = configStore.get();
+    const isCompact = config.selection?.compact ?? false;
+    const enabledActionsCount = config.actions?.filter((a) => a.enabled).length || 5;
+
+    // Generous spacious layout to guarantee zero line-wrapping
+    const toolbarWidth = isCompact
+      ? Math.max(240, 48 + enabledActionsCount * 36 + 60)
+      : Math.max(380, 48 + enabledActionsCount * 78 + 68);
+    const toolbarHeight = 48;
+
     const display = screen.getDisplayNearestPoint({ x: payload.x, y: payload.y });
     const workArea = display.workArea;
-
-    const toolbarWidth = 380;
-    const toolbarHeight = 52;
 
     // Position toolbar slightly offset from cursor, clamped within workArea
     let targetX = payload.x + 8;
@@ -177,7 +235,7 @@ export class WindowManager {
     }
 
     const config = configStore.get();
-    const [actionWidth, actionHeight] = this.actionWindow?.getSize() || [460, 520];
+    const [actionWidth, actionHeight] = this.actionWindow?.getSize() || [480, 540];
 
     if (config.actionWindow.followToolbar && this.currentSelection) {
       const display = screen.getDisplayNearestPoint({
@@ -232,13 +290,7 @@ export class WindowManager {
   }
 
   public createTray() {
-    const icon = nativeImage.createFromBuffer(
-      Buffer.from(
-        'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAZklEQVR4nGNgGFjAiMvwn5rG/5vHwACh+CjABqhqAE71g82AoeLz0DCARyM6GJUDhv//f37f379/cWjhb4QcMFwNuP/v3z/8Bnz4gO8Bf37f3w1x058fPyB24nMIuRauGAqDAAC7Rj8q063cZwAAAABJRU5ErkJggg==',
-        'base64'
-      )
-    );
-
+    const icon = getTrayIcon();
     this.tray = new Tray(icon);
     this.tray.setToolTip('Cherry Selection Lite - AI 划词助手');
 

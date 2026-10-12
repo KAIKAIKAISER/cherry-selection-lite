@@ -15,6 +15,7 @@ import {
 import { AppConfig, SelectionPayload } from '../types';
 import { MarkdownRenderer } from '../components/MarkdownRenderer';
 import { ActionIcon } from '../components/ActionIcon';
+import logo from '../assets/logo.png';
 
 export const ActionWindow: React.FC = () => {
   const [config, setConfig] = useState<AppConfig | null>(null);
@@ -149,7 +150,7 @@ export const ActionWindow: React.FC = () => {
         {/* Header Bar */}
         <div className="drag-region flex items-center justify-between px-3.5 py-2.5 bg-zinc-50/80 dark:bg-zinc-900/80 border-b border-zinc-200/60 dark:border-zinc-800/60 select-none">
           <div className="flex items-center gap-2">
-            <span className="text-sm select-none">🍒</span>
+            <img src={logo} alt="Cherry" className="w-4 h-4 rounded-full object-contain shrink-0" />
             <div className="flex items-center gap-1.5 font-semibold text-xs text-zinc-800 dark:text-zinc-100">
               <ActionIcon id={currentActionId} className="w-3.5 h-3.5 text-cherry-500" />
               <span>{actionTitle}</span>

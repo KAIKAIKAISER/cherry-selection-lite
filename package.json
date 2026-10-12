@@ -1,6 +1,7 @@
 {
   "name": "cherry-selection-lite",
-  "version": "1.0.0",
+  "productName": "Cherry Selection Lite",
+  "version": "1.0.3",
   "description": "Lightweight, API-driven AI Selection Assistant for Windows",
   "main": "dist-electron/main/index.js",
   "author": "Cherry Selection Lite Contributors",
@@ -23,6 +24,7 @@
     "electron": "^33.2.1",
     "electron-builder": "^25.1.8",
     "lucide-react": "^0.468.0",
+    "png-to-ico": "^3.0.2",
     "postcss": "^8.4.49",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

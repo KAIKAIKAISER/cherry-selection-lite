@@ -82,13 +82,17 @@ export const SettingsWindow: React.FC = () => {
     }, 4000);
   };
 
+  const [syncFeedback, setSyncFeedback] = useState<{ message: string; success: boolean } | null>(null);
+
   // Sync Models
   const handleSyncModels = async () => {
     if (!selectedProvider) return;
     setSyncStatus(true);
+    setSyncFeedback(null);
     const res = await window.electronAPI.syncModels({
       baseUrl: selectedProvider.baseUrl,
       apiKey: selectedProvider.apiKey,
+      providerId: selectedProvider.id,
     });
     setSyncStatus(false);
     if (res.success && res.models.length > 0) {
@@ -99,7 +103,7 @@ export const SettingsWindow: React.FC = () => {
             models: res.models.map((m: any) => ({
               id: m.id,
               name: m.name,
-              group: 'synced',
+              group: m.group || 'synced',
               enabled: true,
             })),
           };
@@ -107,7 +111,13 @@ export const SettingsWindow: React.FC = () => {
         return p;
       });
       saveConfig({ ...config, providers: updatedProviders });
+      setSyncFeedback({ success: true, message: `已成功同步 ${res.models.length} 个模型` });
+    } else {
+      setSyncFeedback({ success: false, message: '未能同步模型列表，可手动添加' });
     }
+    setTimeout(() => {
+      setSyncFeedback(null);
+    }, 4000);
   };
 
   // Toggle Provider Active
@@ -470,6 +480,23 @@ export const SettingsWindow: React.FC = () => {
                     </button>
                   </div>
                 </div>
+
+                {syncFeedback && (
+                  <div
+                    className={`p-2 rounded-lg text-[11px] flex items-center gap-1.5 animate-in fade-in duration-150 ${
+                      syncFeedback.success
+                        ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/40'
+                        : 'bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800/40'
+                    }`}
+                  >
+                    {syncFeedback.success ? (
+                      <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                    ) : (
+                      <AlertCircle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                    )}
+                    <span>{syncFeedback.message}</span>
+                  </div>
+                )}
 
                 {/* Model Groups */}
                 <div className="border border-zinc-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 overflow-hidden divide-y divide-zinc-100 dark:divide-zinc-800/60">
