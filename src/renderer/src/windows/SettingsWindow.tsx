@@ -37,6 +37,7 @@ export const SettingsWindow: React.FC = () => {
     loading: false,
   });
   const [syncStatus, setSyncStatus] = useState<boolean>(false);
+  const [syncFeedback, setSyncFeedback] = useState<{ message: string; success: boolean } | null>(null);
 
   // Custom Action Modal
   const [showCustomActionModal, setShowCustomActionModal] = useState<boolean>(false);
@@ -64,8 +65,30 @@ export const SettingsWindow: React.FC = () => {
     return <div className="p-8 text-xs text-zinc-500">正在加载配置...</div>;
   }
 
+  const selectionConfig = config?.selection || {
+    enabled: true,
+    triggerMode: 'ctrlkey' as const,
+    shortcut: 'Alt+S',
+    compact: false,
+    filterList: [],
+    filterMode: 'default' as const,
+  };
+
+  const actionWindowConfig = config?.actionWindow || {
+    followToolbar: true,
+    rememberWinSize: false,
+    autoClose: false,
+    autoPin: false,
+    opacity: 100,
+    width: 480,
+    height: 540,
+  };
+
+  const actionsList = config?.actions || [];
+  const providersList = config?.providers || [];
+
   const selectedProvider =
-    config.providers.find((p) => p.id === selectedProviderId) || config.providers[0];
+    providersList.find((p) => p.id === selectedProviderId) || providersList[0];
 
   // Test Connection
   const handleTestConnection = async () => {
@@ -81,8 +104,6 @@ export const SettingsWindow: React.FC = () => {
       setTestStatus({ loading: false });
     }, 4000);
   };
-
-  const [syncFeedback, setSyncFeedback] = useState<{ message: string; success: boolean } | null>(null);
 
   // Sync Models
   const handleSyncModels = async () => {
@@ -572,11 +593,11 @@ export const SettingsWindow: React.FC = () => {
                       type="radio"
                       name="triggerMode"
                       value={item.id}
-                      checked={config.selection.triggerMode === item.id}
+                      checked={selectionConfig.triggerMode === item.id}
                       onChange={() =>
                         saveConfig({
                           ...config,
-                          selection: { ...config.selection, triggerMode: item.id as any },
+                          selection: { ...selectionConfig, triggerMode: item.id as any },
                         })
                       }
                       className="accent-emerald-500 w-3.5 h-3.5"
@@ -596,11 +617,11 @@ export const SettingsWindow: React.FC = () => {
                 <span className="text-[11px] text-zinc-400">紧凑模式下，只显示图标，不显示文字</span>
               </div>
               <Switch
-                checked={config.selection.compact}
+                checked={selectionConfig.compact}
                 onChange={(val) =>
                   saveConfig({
                     ...config,
-                    selection: { ...config.selection, compact: val },
+                    selection: { ...selectionConfig, compact: val },
                   })
                 }
               />
@@ -622,11 +643,11 @@ export const SettingsWindow: React.FC = () => {
                 </span>
               </div>
               <Switch
-                checked={config.actionWindow.followToolbar}
+                checked={actionWindowConfig.followToolbar}
                 onChange={(val) =>
                   saveConfig({
                     ...config,
-                    actionWindow: { ...config.actionWindow, followToolbar: val },
+                    actionWindow: { ...actionWindowConfig, followToolbar: val },
                   })
                 }
               />
@@ -641,11 +662,11 @@ export const SettingsWindow: React.FC = () => {
                 <span className="text-[11px] text-zinc-400">应用运行期间，窗口会按上次调整的大小显示</span>
               </div>
               <Switch
-                checked={config.actionWindow.rememberWinSize}
+                checked={actionWindowConfig.rememberWinSize}
                 onChange={(val) =>
                   saveConfig({
                     ...config,
-                    actionWindow: { ...config.actionWindow, rememberWinSize: val },
+                    actionWindow: { ...actionWindowConfig, rememberWinSize: val },
                   })
                 }
               />
@@ -662,11 +683,11 @@ export const SettingsWindow: React.FC = () => {
                 </span>
               </div>
               <Switch
-                checked={config.actionWindow.autoClose}
+                checked={actionWindowConfig.autoClose}
                 onChange={(val) =>
                   saveConfig({
                     ...config,
-                    actionWindow: { ...config.actionWindow, autoClose: val },
+                    actionWindow: { ...actionWindowConfig, autoClose: val },
                   })
                 }
               />
@@ -681,11 +702,11 @@ export const SettingsWindow: React.FC = () => {
                 <span className="text-[11px] text-zinc-400">默认将窗口置于顶部</span>
               </div>
               <Switch
-                checked={config.actionWindow.autoPin}
+                checked={actionWindowConfig.autoPin}
                 onChange={(val) =>
                   saveConfig({
                     ...config,
-                    actionWindow: { ...config.actionWindow, autoPin: val },
+                    actionWindow: { ...actionWindowConfig, autoPin: val },
                   })
                 }
               />
@@ -703,18 +724,18 @@ export const SettingsWindow: React.FC = () => {
               </div>
               <div className="flex items-center gap-3">
                 <span className="text-xs font-mono text-zinc-600 dark:text-zinc-300">
-                  {config.actionWindow.opacity}%
+                  {actionWindowConfig.opacity}%
                 </span>
                 <input
                   type="range"
                   min="30"
                   max="100"
-                  value={config.actionWindow.opacity}
+                  value={actionWindowConfig.opacity}
                   onChange={(e) =>
                     saveConfig({
                       ...config,
                       actionWindow: {
-                        ...config.actionWindow,
+                        ...actionWindowConfig,
                         opacity: parseInt(e.target.value),
                       },
                     })
@@ -809,7 +830,7 @@ export const SettingsWindow: React.FC = () => {
                     className="flex items-center gap-1 text-xs font-medium text-zinc-700 dark:text-zinc-200"
                   >
                     <ActionIcon id={act.id} className="w-3.5 h-3.5" />
-                    {!config.selection.compact && <span>{act.name}</span>}
+                    {!selectionConfig.compact && <span>{act.name}</span>}
                   </div>
                 ))}
               </div>
@@ -853,7 +874,7 @@ export const SettingsWindow: React.FC = () => {
             <div className="py-2 flex items-center gap-3 text-zinc-400 text-[11px]">
               <div className="flex-1 h-[1px] bg-zinc-200 dark:bg-zinc-800" />
               <span>
-                拖拽排序，移动到上方以启用功能 ({enabledActions.length}/{config.actions.length})
+                拖拽排序，移动到上方以启用功能 ({enabledActions.length}/{actionsList.length})
               </span>
               <div className="flex-1 h-[1px] bg-zinc-200 dark:bg-zinc-800" />
             </div>

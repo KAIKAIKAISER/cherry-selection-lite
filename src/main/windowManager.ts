@@ -56,12 +56,13 @@ export class WindowManager {
     return path.join(__dirname, '../preload/index.js');
   }
 
-  private getRendererUrl(windowType: string): string {
+  private loadWindow(win: BrowserWindow, windowType: string) {
     if (process.env.VITE_DEV_SERVER_URL) {
-      return `${process.env.VITE_DEV_SERVER_URL}?window=${windowType}`;
+      win.loadURL(`${process.env.VITE_DEV_SERVER_URL}?window=${windowType}`);
+    } else {
+      const htmlPath = path.join(__dirname, '../../dist/index.html');
+      win.loadFile(htmlPath, { query: { window: windowType } });
     }
-    const htmlPath = path.join(__dirname, '../../dist/index.html');
-    return `file://${htmlPath}?window=${windowType}`;
   }
 
   public createToolbarWindow() {
@@ -90,7 +91,7 @@ export class WindowManager {
       },
     });
 
-    this.toolbarWindow.loadURL(this.getRendererUrl('toolbar'));
+    this.loadWindow(this.toolbarWindow, 'toolbar');
 
     this.toolbarWindow.on('closed', () => {
       this.toolbarWindow = null;
@@ -121,7 +122,7 @@ export class WindowManager {
       },
     });
 
-    this.actionWindow.loadURL(this.getRendererUrl('action'));
+    this.loadWindow(this.actionWindow, 'action');
 
     // Handle auto-close on blur if not pinned
     this.actionWindow.on('blur', () => {
@@ -173,7 +174,7 @@ export class WindowManager {
       },
     });
 
-    this.settingsWindow.loadURL(this.getRendererUrl('settings'));
+    this.loadWindow(this.settingsWindow, 'settings');
 
     this.settingsWindow.on('closed', () => {
       this.settingsWindow = null;
