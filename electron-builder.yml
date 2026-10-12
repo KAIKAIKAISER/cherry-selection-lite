@@ -18,18 +18,3 @@ nsis:
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: always
   createStartMenuShortcut: true
-mac:
-  category: public.app-category.productivity
-  target:
-    - target: dmg
-      arch:
-        - x64
-        - arm64
-  artifactName: ${productName}-Mac-${version}-${arch}.${ext}
-linux:
-  target:
-    - target: AppImage
-      arch:
-        - x64
-  category: Utility
-  artifactName: ${productName}-Linux-${version}.${ext}

@@ -1,7 +1,7 @@
 {
   "name": "cherry-selection-lite",
   "version": "1.0.0",
-  "description": "Lightweight, API-driven AI Selection Assistant extracted from Cherry Studio",
+  "description": "Lightweight, API-driven AI Selection Assistant for Windows",
   "main": "dist-electron/main/index.js",
   "author": "Cherry Selection Lite Contributors",
   "license": "Apache-2.0",
@@ -11,9 +11,7 @@
     "build:electron": "tsc -p tsconfig.electron.json",
     "build": "npm run build:vite && npm run build:electron",
     "start": "electron dist-electron/main/index.js",
-    "pack:win": "npm run build && electron-builder --win --x64",
-    "pack:mac": "npm run build && electron-builder --mac",
-    "pack:linux": "npm run build && electron-builder --linux"
+    "pack:win": "npm run build && electron-builder --win --x64"
   },
   "dependencies": {},
   "devDependencies": {
