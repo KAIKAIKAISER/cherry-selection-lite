@@ -15,6 +15,7 @@
     "pack:win": "npm run build:vite && npx @tauri-apps/cli build"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.12.2",
     "@types/node": "^22.10.1",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
@@ -30,6 +31,6 @@
     "vite": "^6.0.3"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.1.1"
+    "@tauri-apps/api": "^2.12.3"
   }
 }
