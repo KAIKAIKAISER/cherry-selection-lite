@@ -89,7 +89,7 @@ pub mod win_impl {
             let is_ctrl_down = (GetAsyncKeyState(VK_CONTROL.0 as i32) as u16 & 0x8000) != 0;
             if is_ctrl_down {
                 // Physical Ctrl is already pressed, send only C key down and up
-                let mut inputs = [
+                let inputs = [
                     INPUT {
                         r#type: INPUT_KEYBOARD,
                         Anonymous: INPUT_0 {
@@ -118,7 +118,7 @@ pub mod win_impl {
                 SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
             } else {
                 // Complete Ctrl+C sequence
-                let mut inputs = [
+                let inputs = [
                     INPUT {
                         r#type: INPUT_KEYBOARD,
                         Anonymous: INPUT_0 {

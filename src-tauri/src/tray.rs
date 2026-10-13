@@ -12,7 +12,7 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let menu = Menu::with_items(app, &[&settings_item, &toggle_item, &quit_item])?;
 
     let icon = app.default_window_icon().cloned().or_else(|| {
-        tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png")).ok()
+        tauri::image::Image::from_app_icon_resource(32).ok()
     });
 
     let mut builder = TrayIconBuilder::new()

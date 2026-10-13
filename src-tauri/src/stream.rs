@@ -229,10 +229,10 @@ pub async fn run_fetch_models(
             for item in models {
                 if let Some(name) = item.get("name").and_then(|n| n.as_str()) {
                     let clean_id = name.trim_start_matches("models/").to_string();
-                    let display = item.get("displayName").and_then(|d| d.as_str()).unwrap_or(&clean_id);
+                    let display = item.get("displayName").and_then(|d| d.as_str()).map(|s| s.to_string()).unwrap_or_else(|| clean_id.clone());
                     list.push(FetchedModel {
                         id: clean_id,
-                        name: display.to_string(),
+                        name: display,
                     });
                 }
             }
