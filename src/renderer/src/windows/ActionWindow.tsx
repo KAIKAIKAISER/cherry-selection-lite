@@ -48,20 +48,20 @@ export const ActionWindow: React.FC = () => {
 
       const defTarget = cfg.defaultAssistantModel;
       const validProviders = (cfg.providers || []).filter(
-        (p) => p.enabled && (Boolean(p.apiKey && p.apiKey.trim().length > 0) || p.id === 'ollama')
+        (p) => Boolean(p.apiKey && p.apiKey.trim().length > 0) || p.id === 'ollama'
       );
       let foundProvider = validProviders.find((p) => p.id === defTarget?.providerId);
-      let foundModel = foundProvider?.models.find((m) => m.id === defTarget?.modelId && m.enabled !== false);
+      let foundModel = foundProvider?.models?.find((m) => m.id === defTarget?.modelId && m.enabled !== false);
 
       if (!foundProvider || !foundModel) {
         foundProvider = validProviders[0];
-        foundModel = foundProvider?.models.find((m) => m.enabled !== false) || foundProvider?.models[0];
+        foundModel = foundProvider?.models?.find((m) => m.enabled !== false) || foundProvider?.models?.[0];
       }
 
-      if (foundProvider && foundModel) {
+      if (foundProvider) {
         setSelectedProviderId(foundProvider.id);
-        setSelectedModelId(foundModel.id);
-        setSelectedModelName(foundModel.name || foundModel.id);
+        setSelectedModelId(foundModel?.id || 'default');
+        setSelectedModelName(foundModel?.name || foundModel?.id || foundProvider.name);
       }
     };
 
@@ -84,19 +84,19 @@ export const ActionWindow: React.FC = () => {
           : cfg.defaultAssistantModel;
 
         const validProviders = (cfg.providers || []).filter(
-          (p) => p.enabled && (Boolean(p.apiKey && p.apiKey.trim().length > 0) || p.id === 'ollama')
+          (p) => Boolean(p.apiKey && p.apiKey.trim().length > 0) || p.id === 'ollama'
         );
 
         let prov = validProviders.find((p) => p.id === def?.providerId);
-        let mod = prov?.models.find((m) => m.id === def?.modelId && m.enabled !== false);
+        let mod = prov?.models?.find((m) => m.id === def?.modelId && m.enabled !== false);
 
         if (!prov || !mod) {
           prov = validProviders[0];
-          mod = prov?.models.find((m) => m.enabled !== false) || prov?.models[0];
+          mod = prov?.models?.find((m) => m.enabled !== false) || prov?.models?.[0];
         }
 
         const pId = prov?.id;
-        const mId = mod?.id;
+        const mId = mod?.id || 'default';
         const mName = mod?.name || mId;
 
         if (pId && mId) {
@@ -105,7 +105,7 @@ export const ActionWindow: React.FC = () => {
           setSelectedModelName(mName);
           startGeneration(actionId, sel, customPrompt, pId, mId, cfg);
         } else {
-          setErrorMessage('未找到已启用并配置 API Key 的模型服务商，请在设置中配置服务商。');
+          setErrorMessage('未找到已配置 API Key 的模型服务商，请在设置中配置服务商。');
           setIsStreaming(false);
         }
       });
@@ -149,12 +149,12 @@ export const ActionWindow: React.FC = () => {
     const modId = targetModId || selectedModelId;
 
     const validProviders = (currentCfg.providers || []).filter(
-      (p) => p.enabled && (Boolean(p.apiKey && p.apiKey.trim().length > 0) || p.id === 'ollama')
+      (p) => Boolean(p.apiKey && p.apiKey.trim().length > 0) || p.id === 'ollama'
     );
 
     let provider = validProviders.find((p) => p.id === provId);
     if (!provider) {
-      provider = validProviders.find((p) => p.models.some((m) => m.id === modId && m.enabled !== false));
+      provider = validProviders.find((p) => (p.models || []).some((m) => m.id === modId && m.enabled !== false));
     }
     if (!provider) {
       provider = validProviders[0];
@@ -162,10 +162,9 @@ export const ActionWindow: React.FC = () => {
     if (!provider) return null;
 
     const model =
-      provider.models.find((m) => m.id === modId && m.enabled !== false) ||
-      provider.models.find((m) => m.enabled !== false) ||
-      provider.models[0];
-    if (!model) return null;
+      (provider.models || []).find((m) => m.id === modId && m.enabled !== false) ||
+      (provider.models || []).find((m) => m.enabled !== false) ||
+      provider.models?.[0] || { id: 'default', name: `${provider.name} (默认模型)` };
 
     return {
       provider,
@@ -288,23 +287,21 @@ export const ActionWindow: React.FC = () => {
   const currentAction = config?.actions?.find((a) => a.id === currentActionId);
   const actionTitle = currentAction ? currentAction.name : 'AI 助手';
 
-  // Filter to ONLY models from enabled providers that have an API key (or ollama) and are enabled
+  // Filter to ONLY models from providers that have an API key (or ollama)
   const availableModels = (config?.providers || [])
-    .filter(
-      (p) =>
-        p.enabled &&
-        (Boolean(p.apiKey && p.apiKey.trim().length > 0) || p.id === 'ollama')
-    )
-    .flatMap((p) =>
-      p.models
-        .filter((m) => m.enabled !== false)
-        .map((m) => ({
-          providerId: p.id,
-          providerName: p.name,
-          modelId: m.id,
-          modelName: m.name || m.id,
-        }))
-    );
+    .filter((p) => Boolean(p.apiKey && p.apiKey.trim().length > 0) || p.id === 'ollama')
+    .flatMap((p) => {
+      const models =
+        p.models && p.models.length > 0
+          ? p.models.filter((m) => m.enabled !== false)
+          : [{ id: 'default', name: `${p.name} (默认模型)` }];
+      return models.map((m) => ({
+        providerId: p.id,
+        providerName: p.name,
+        modelId: m.id,
+        modelName: m.name || m.id,
+      }));
+    });
 
   return (
     <div

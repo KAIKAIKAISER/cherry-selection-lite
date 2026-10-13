@@ -72,6 +72,13 @@ export const SettingsWindow: React.FC = () => {
         }
       }
 
+      // Auto-enable any provider that already has an API key configured
+      for (const p of currentMap.values()) {
+        if (p.apiKey && p.apiKey.trim().length > 0 && !p.enabled) {
+          p.enabled = true;
+        }
+      }
+
       const mergedProviders = Array.from(currentMap.values());
       const updatedConfig = { ...cfg, providers: mergedProviders, deletedProviderIds: deleted };
 
@@ -123,27 +130,37 @@ export const SettingsWindow: React.FC = () => {
   const allEnabledModels = useMemo(() => {
     if (!config) return [];
     return config.providers
-      .filter(
-        (p) =>
-          p.enabled &&
-          (Boolean(p.apiKey && p.apiKey.trim().length > 0) || p.id === 'ollama')
-      )
-      .flatMap((p) =>
-        p.models
-          .filter((m) => m.enabled !== false)
-          .map((m) => ({
-            providerId: p.id,
-            providerName: p.name,
-            modelId: m.id,
-            modelName: m.name || m.id,
-          }))
-      );
+      .filter((p) => {
+        const hasKey = Boolean(p.apiKey && p.apiKey.trim().length > 0) || p.id === 'ollama';
+        return hasKey;
+      })
+      .flatMap((p) => {
+        const models =
+          p.models && p.models.length > 0
+            ? p.models.filter((m) => m.enabled !== false)
+            : [{ id: 'default', name: `${p.name} (默认模型)` }];
+        return models.map((m) => ({
+          providerId: p.id,
+          providerName: p.name,
+          modelId: m.id,
+          modelName: m.name || m.id,
+        }));
+      });
   }, [config]);
 
   // Provider update helper
   const updateCurrentProvider = (patch: Partial<ProviderItem>) => {
     if (!config || !selectedProvider) return;
-    const updatedProviders = config.providers.map((p) => (p.id === selectedProvider.id ? { ...p, ...patch } : p));
+    const updatedProviders = config.providers.map((p) => {
+      if (p.id === selectedProvider.id) {
+        const next = { ...p, ...patch };
+        if (patch.apiKey && patch.apiKey.trim().length > 0 && next.enabled === false && patch.enabled === undefined) {
+          next.enabled = true;
+        }
+        return next;
+      }
+      return p;
+    });
     saveConfig({ ...config, providers: updatedProviders });
   };
 
@@ -462,11 +479,11 @@ export const SettingsWindow: React.FC = () => {
                 {deletedBuiltins.length > 0 && (
                   <button
                     onClick={() => setShowRestoreModal(true)}
-                    className="flex items-center justify-center gap-1 px-2.5 py-1.5 bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 dark:hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 rounded-lg text-xs font-medium transition-colors cursor-pointer"
-                    title={`有 ${deletedBuiltins.length} 个内置服务商已被移除，点击恢复`}
+                    className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-300 rounded-lg text-xs font-medium transition-colors cursor-pointer"
+                    title={`回收站：有 ${deletedBuiltins.length} 个已删除的服务商`}
                   >
-                    <Undo2 className="w-3.5 h-3.5" />
-                    <span>恢复({deletedBuiltins.length})</span>
+                    <Trash2 className="w-3.5 h-3.5 text-zinc-500" />
+                    <span>回收站 ({deletedBuiltins.length})</span>
                   </button>
                 )}
               </div>
@@ -1148,15 +1165,20 @@ export const SettingsWindow: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL 2: RESTORE DELETED BUILT-IN PROVIDERS */}
+      {/* MODAL 2: RECYCLE BIN FOR DELETED PROVIDERS */}
       {showRestoreModal && (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="w-full max-w-md bg-white dark:bg-zinc-850 rounded-xl p-5 border border-zinc-200 dark:border-zinc-700 shadow-xl space-y-4 animate-in fade-in zoom-in-95">
             <div className="flex items-center justify-between">
-              <div>
-                <span className="font-semibold text-sm">恢复已删除的内置服务商</span>
-                <div className="text-[11px] text-zinc-400 mt-0.5">
-                  共有 {deletedBuiltins.length} 个内置服务商可随时恢复
+              <div className="flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-lg bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-zinc-500">
+                  <Trash2 className="w-4 h-4" />
+                </div>
+                <div>
+                  <span className="font-semibold text-sm">回收站</span>
+                  <div className="text-[11px] text-zinc-400 mt-0.5">
+                    共有 {deletedBuiltins.length} 个已删除服务商，可随时还原
+                  </div>
                 </div>
               </div>
               <button onClick={() => setShowRestoreModal(false)} className="text-zinc-400 hover:text-zinc-600">
@@ -1174,19 +1196,30 @@ export const SettingsWindow: React.FC = () => {
 
                   <button
                     onClick={() => handleRestoreProvider(bp.id)}
-                    className="flex items-center gap-1 px-2.5 py-1 bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 text-rose-600 dark:text-rose-400 rounded-md text-xs font-medium cursor-pointer"
+                    className="flex items-center gap-1 px-2.5 py-1 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 rounded-md text-xs font-medium cursor-pointer transition-colors"
                   >
-                    <Undo2 className="w-3 h-3" />
-                    <span>恢复</span>
+                    <Undo2 className="w-3 h-3 text-zinc-500" />
+                    <span>还原</span>
                   </button>
                 </div>
               ))}
             </div>
 
-            <div className="flex justify-end pt-2">
+            <div className="flex justify-between items-center pt-2">
+              <button
+                onClick={() => {
+                  for (const bp of deletedBuiltins) {
+                    handleRestoreProvider(bp.id);
+                  }
+                  setShowRestoreModal(false);
+                }}
+                className="text-xs text-rose-500 hover:text-rose-600 font-medium cursor-pointer"
+              >
+                全部还原
+              </button>
               <button
                 onClick={() => setShowRestoreModal(false)}
-                className="px-3 py-1.5 bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-200 rounded-lg text-xs font-medium cursor-pointer"
+                className="px-3 py-1.5 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 text-zinc-700 dark:text-zinc-200 rounded-lg text-xs font-medium cursor-pointer"
               >
                 完成
               </button>
@@ -1202,7 +1235,7 @@ export const SettingsWindow: React.FC = () => {
             <span className="font-semibold text-sm text-red-500">删除服务商确认</span>
             <p className="text-xs text-zinc-600 dark:text-zinc-300">
               确定要删除服务商 <span className="font-semibold text-zinc-900 dark:text-white">{selectedProvider.name}</span> 吗？
-              {selectedProvider.isBuiltIn && '（内置服务商删除后，可随时在「恢复内置服务商」中找回）'}
+              {selectedProvider.isBuiltIn && '（内置服务商删除后，可随时在「回收站」中找回）'}
             </p>
 
             <div className="flex justify-end gap-2 pt-2">

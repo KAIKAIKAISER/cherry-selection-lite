@@ -49,9 +49,9 @@
 2. 进入仓库页面的 **Actions** 标签页，启用 Actions 权限。
 3. 点击左侧 **Build Windows x64 (Tauri)** 工作流，点击 **Run workflow** 手动触发在线编译（或直接推送 commit / tag 到 `main` 分支）。
 4. 编译完成后，在工作流详情页底部的 **Artifacts** 即可一键下载：
-   - `Cherry-Selection-Lite_1.0.7_x64-setup.exe`（Windows 安装程序）
+   - `Cherry-Selection-Lite_1.0.8_x64-setup.exe`（Windows 安装程序）
    - `Cherry-Selection-Lite-Portable.exe`（绿色便携免安装版）
-5. 若推送版本标签（例如 `git tag v1.0.7 && git push origin v1.0.7`），GitHub Actions 将自动发布正式 Release！
+5. 若推送版本标签（例如 `git tag v1.0.8 && git push origin v1.0.8`），GitHub Actions 将自动发布正式 Release！
 
 ---
 
