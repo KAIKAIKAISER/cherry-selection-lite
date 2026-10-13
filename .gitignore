@@ -4,3 +4,7 @@ dist-electron
 release
 .DS_Store
 *.log
+
+artifact.zip
+dist-ci/
+
