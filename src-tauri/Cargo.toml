@@ -1,0 +1,36 @@
+[package]
+name = "cherry-selection-lite"
+version = "1.0.4"
+description = "Cherry Studio AI Selection Assistant for Windows (Lightweight)"
+authors = ["Cherry Selection Lite Contributors"]
+license = "Apache-2.0"
+repository = "https://github.com/KAIKAIKAISER/cherry-selection-lite"
+edition = "2021"
+
+[lib]
+name = "cherry_selection_lite_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.1.2", features = [] }
+
+[dependencies]
+tauri = { version = "2.1.2", features = ["tray-icon"] }
+tauri-plugin-shell = "2.1.0"
+tauri-plugin-global-shortcut = "2.1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+futures-util = "0.3"
+log = "0.4"
+tauri-plugin-log = "2"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+  "Win32_Foundation",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_System_DataExchange",
+  "Win32_System_Memory"
+] }

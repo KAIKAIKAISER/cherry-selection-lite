@@ -5,14 +5,26 @@ export interface ProviderModel {
   enabled?: boolean;
 }
 
+export interface ProviderWebsite {
+  official?: string;
+  apiKey?: string;
+  docs?: string;
+  models?: string;
+}
+
 export interface ProviderItem {
   id: string;
   name: string;
+  description?: string;
   icon?: string;
   apiKey: string;
   baseUrl: string;
+  defaultBaseUrl?: string;
+  proxyUrl?: string;
   enabled: boolean;
-  docUrl?: string;
+  isBuiltIn?: boolean;
+  website?: ProviderWebsite;
+  defaultChatEndpoint?: string;
   models: ProviderModel[];
 }
 
@@ -27,18 +39,17 @@ export interface ActionItem {
   modelOverride?: string;
 }
 
+export interface DefaultModelSelection {
+  providerId: string;
+  modelId: string;
+  modelName: string;
+}
+
 export interface AppConfig {
   providers: ProviderItem[];
-  defaultAssistantModel: {
-    providerId: string;
-    modelId: string;
-    modelName: string;
-  };
-  defaultTranslateModel: {
-    providerId: string;
-    modelId: string;
-    modelName: string;
-  };
+  deletedProviderIds: string[];
+  defaultAssistantModel: DefaultModelSelection;
+  defaultTranslateModel: DefaultModelSelection;
   selection: {
     enabled: boolean;
     triggerMode: 'selection' | 'ctrlkey' | 'shortcut';
@@ -68,11 +79,23 @@ export interface SelectionPayload {
   source?: string;
 }
 
+export interface TestResult {
+  success: boolean;
+  latencyMs?: number;
+  message: string;
+}
+
+export interface SyncModelsResult {
+  success: boolean;
+  models: Array<{ id: string; name: string }>;
+  message?: string;
+}
+
 export interface IElectronAPI {
   getConfig: () => Promise<AppConfig>;
   setConfig: (config: Partial<AppConfig>) => Promise<AppConfig>;
-  testProvider: (data: { baseUrl: string; apiKey: string; modelId?: string }) => Promise<{ success: boolean; message: string }>;
-  syncModels: (data: { baseUrl: string; apiKey: string }) => Promise<{ success: boolean; models: any[] }>;
+  testProvider: (data: { baseUrl: string; apiKey: string; modelId?: string }) => Promise<TestResult>;
+  syncModels: (data: { baseUrl: string; apiKey: string; providerId?: string }) => Promise<SyncModelsResult>;
   hideToolbar: () => void;
   showAction: (data: { actionId: string; customPrompt?: string }) => void;
   hideAction: () => void;
@@ -81,7 +104,7 @@ export interface IElectronAPI {
   copyText: (text: string) => void;
   openExternal: (url: string) => void;
   testTrigger: (text: string) => void;
-  startChatStream: (data: { prompt: string; actionId?: string; modelOverride?: string }) => void;
+  startChatStream: (data: { prompt: string; actionId?: string; modelOverride?: string; baseUrl?: string; apiKey?: string; model?: string }) => void;
   stopChatStream: () => void;
   onSelectionUpdated: (callback: (payload: SelectionPayload) => void) => () => void;
   onActionStart: (callback: (data: { actionId: string; customPrompt?: string; selection: SelectionPayload }) => void) => () => void;
@@ -93,5 +116,6 @@ export interface IElectronAPI {
 declare global {
   interface Window {
     electronAPI: IElectronAPI;
+    __TAURI_INTERNALS__?: any;
   }
 }

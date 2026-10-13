@@ -1,10 +1,10 @@
-name: Build & Package Windows
+name: Build Windows x64 (Tauri)
 
 on:
   push:
     branches:
-      - master
       - main
+      - master
     tags:
       - 'v*'
   workflow_dispatch:
@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   build-windows:
-    name: Build Windows Installer (.exe)
+    name: Build Windows x64 Installer
     runs-on: windows-latest
 
     steps:
@@ -27,16 +27,34 @@ jobs:
           node-version: 20
           cache: 'npm'
 
-      - name: Install Dependencies
-        run: npm ci
+      - name: Setup Rust Stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
 
-      - name: Build Application
-        run: npm run build
+      - name: Rust Cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
 
-      - name: Package Windows Installer
-        run: npx electron-builder --win --x64
+      - name: Install Frontend Dependencies
+        run: npm install
+
+      - name: Build Frontend
+        run: npm run build:vite
+
+      - name: Build Tauri Windows x64 Application
+        run: npx @tauri-apps/cli build
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CI: true
+
+      - name: Copy & Rename Artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path "release" -Force
+          Get-ChildItem -Path "src-tauri/target/release/bundle/nsis/*.exe" | Copy-Item -Destination "release/" -Force
+          Get-ChildItem -Path "src-tauri/target/release/cherry-selection-lite.exe" | Copy-Item -Destination "release/Cherry-Selection-Lite-Portable.exe" -Force
+          Get-ChildItem -Path "release"
 
       - name: Upload Windows Artifacts
         uses: actions/upload-artifact@v4

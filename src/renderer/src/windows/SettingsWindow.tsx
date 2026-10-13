@@ -1,57 +1,83 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import {
   Server,
   MousePointer,
-  Settings,
+  Settings as SettingsIcon,
   Search,
-  Filter,
-  MoreVertical,
   Plus,
-  Key,
   Eye,
   EyeOff,
   RotateCw,
-  Sliders,
   Check,
   AlertCircle,
   HelpCircle,
-  GripVertical,
-  Minus,
   FileText,
-  CheckSquare,
-  ArrowRight,
   ExternalLink,
+  Trash2,
+  Undo2,
+  Sparkles,
+  Languages,
+  Code,
+  Copy,
+  Sliders,
+  X,
+  ArrowUp,
+  ArrowDown,
 } from 'lucide-react';
 import { AppConfig, ProviderItem, ProviderModel, ActionItem } from '../types';
 import { ProviderIcon } from '../components/ProviderIcon';
 import { ActionIcon } from '../components/ActionIcon';
 import { Switch } from '../components/Switch';
+import { BUILTIN_PROVIDERS } from '../data/builtinProviders';
 
 export const SettingsWindow: React.FC = () => {
   const [config, setConfig] = useState<AppConfig | null>(null);
-  const [activeMainTab, setActiveMainTab] = useState<'providers' | 'selection' | 'general'>('selection');
-  const [selectedProviderId, setSelectedProviderId] = useState<string>('tokenhub');
+  const [activeMainTab, setActiveMainTab] = useState<'providers' | 'selection' | 'general'>('providers');
+  const [selectedProviderId, setSelectedProviderId] = useState<string>('deepseek');
   const [providerSearch, setProviderSearch] = useState<string>('');
+  const [providerFilterTab, setProviderFilterTab] = useState<'all' | 'enabled' | 'custom'>('all');
+  const [modelSearch, setModelSearch] = useState<string>('');
   const [showApiKey, setShowApiKey] = useState<boolean>(false);
-  const [testStatus, setTestStatus] = useState<{ loading: boolean; success?: boolean; message?: string }>({
+
+  // Statuses
+  const [testStatus, setTestStatus] = useState<{ loading: boolean; success?: boolean; latency?: number; message?: string }>({
     loading: false,
   });
   const [syncStatus, setSyncStatus] = useState<boolean>(false);
   const [syncFeedback, setSyncFeedback] = useState<{ message: string; success: boolean } | null>(null);
 
-  // Custom Action Modal
-  const [showCustomActionModal, setShowCustomActionModal] = useState<boolean>(false);
-  const [customActionForm, setCustomActionForm] = useState({ name: '', prompt: '{{text}}' });
+  // Modals
+  const [showCustomProviderModal, setShowCustomProviderModal] = useState<boolean>(false);
+  const [customProviderForm, setCustomProviderForm] = useState({ id: '', name: '', baseUrl: '', apiKey: '' });
 
-  // Add Model Modal
+  const [showRestoreModal, setShowRestoreModal] = useState<boolean>(false);
+  const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState<boolean>(false);
+
   const [showAddModelModal, setShowAddModelModal] = useState<boolean>(false);
-  const [newModelForm, setNewModelForm] = useState({ id: '', name: '', group: 'default' });
+  const [newModelForm, setNewModelForm] = useState({ id: '', name: '', group: 'custom' });
+
+  const [showActionModal, setShowActionModal] = useState<boolean>(false);
+  const [editingAction, setEditingAction] = useState<ActionItem | null>(null);
 
   useEffect(() => {
     window.electronAPI.getConfig().then((cfg) => {
-      setConfig(cfg);
-      if (cfg.providers && cfg.providers.length > 0) {
-        setSelectedProviderId(cfg.providers[0].id);
+      // Merge with builtin providers if needed
+      const deleted = cfg.deletedProviderIds || [];
+      const currentMap = new Map((cfg.providers || []).map((p) => [p.id, p]));
+
+      // Ensure built-in providers exist in list unless deleted
+      for (const bp of BUILTIN_PROVIDERS) {
+        if (!deleted.includes(bp.id) && !currentMap.has(bp.id)) {
+          currentMap.set(bp.id, bp);
+        }
+      }
+
+      const mergedProviders = Array.from(currentMap.values());
+      const updatedConfig = { ...cfg, providers: mergedProviders, deletedProviderIds: deleted };
+
+      setConfig(updatedConfig);
+      if (mergedProviders.length > 0 && !currentMap.has(selectedProviderId)) {
+        setSelectedProviderId(mergedProviders[0].id);
       }
     });
   }, []);
@@ -61,972 +87,1124 @@ export const SettingsWindow: React.FC = () => {
     await window.electronAPI.setConfig(newCfg);
   };
 
-  if (!config) {
-    return <div className="p-8 text-xs text-zinc-500">正在加载配置...</div>;
-  }
+  // Filtered providers list
+  const filteredProviders = useMemo(() => {
+    if (!config) return [];
+    return config.providers.filter((p) => {
+      // Deleted check
+      if (config.deletedProviderIds?.includes(p.id)) return false;
 
-  const selectionConfig = config?.selection || {
-    enabled: true,
-    triggerMode: 'ctrlkey' as const,
-    shortcut: 'Alt+S',
-    compact: false,
-    filterList: [],
-    filterMode: 'default' as const,
+      // Filter tab
+      if (providerFilterTab === 'enabled' && !p.enabled) return false;
+      if (providerFilterTab === 'custom' && p.isBuiltIn) return false;
+
+      // Search
+      if (providerSearch.trim()) {
+        const query = providerSearch.toLowerCase();
+        return p.name.toLowerCase().includes(query) || p.id.toLowerCase().includes(query);
+      }
+      return true;
+    });
+  }, [config, providerFilterTab, providerSearch]);
+
+  const selectedProvider = useMemo(() => {
+    if (!config) return null;
+    return config.providers.find((p) => p.id === selectedProviderId) || filteredProviders[0] || null;
+  }, [config, selectedProviderId, filteredProviders]);
+
+  // Deleted built-in providers available for restore
+  const deletedBuiltins = useMemo(() => {
+    if (!config) return [];
+    const deletedIds = new Set(config.deletedProviderIds || []);
+    return BUILTIN_PROVIDERS.filter((p) => deletedIds.has(p.id));
+  }, [config]);
+
+  // Provider update helper
+  const updateCurrentProvider = (patch: Partial<ProviderItem>) => {
+    if (!config || !selectedProvider) return;
+    const updatedProviders = config.providers.map((p) => (p.id === selectedProvider.id ? { ...p, ...patch } : p));
+    saveConfig({ ...config, providers: updatedProviders });
   };
-
-  const actionWindowConfig = config?.actionWindow || {
-    followToolbar: true,
-    rememberWinSize: false,
-    autoClose: false,
-    autoPin: false,
-    opacity: 100,
-    width: 480,
-    height: 540,
-  };
-
-  const actionsList = config?.actions || [];
-  const providersList = config?.providers || [];
-
-  const selectedProvider =
-    providersList.find((p) => p.id === selectedProviderId) || providersList[0];
 
   // Test Connection
   const handleTestConnection = async () => {
     if (!selectedProvider) return;
     setTestStatus({ loading: true });
-    const res = await window.electronAPI.testProvider({
-      baseUrl: selectedProvider.baseUrl,
-      apiKey: selectedProvider.apiKey,
-      modelId: selectedProvider.models[0]?.id || 'hunyuan-mt2-pro',
-    });
-    setTestStatus({ loading: false, success: res.success, message: res.message });
-    setTimeout(() => {
-      setTestStatus({ loading: false });
-    }, 4000);
+    try {
+      const res = await window.electronAPI.testProvider({
+        baseUrl: selectedProvider.baseUrl,
+        apiKey: selectedProvider.apiKey,
+        modelId: selectedProvider.models[0]?.id,
+      });
+      setTestStatus({
+        loading: false,
+        success: res.success,
+        latency: res.latencyMs,
+        message: res.message,
+      });
+    } catch (err: any) {
+      setTestStatus({
+        loading: false,
+        success: false,
+        message: err.message || '连接测试异常',
+      });
+    }
   };
 
-  // Sync Models
+  // Fetch Models
   const handleSyncModels = async () => {
     if (!selectedProvider) return;
     setSyncStatus(true);
     setSyncFeedback(null);
-    const res = await window.electronAPI.syncModels({
-      baseUrl: selectedProvider.baseUrl,
-      apiKey: selectedProvider.apiKey,
-      providerId: selectedProvider.id,
-    });
-    setSyncStatus(false);
-    if (res.success && res.models.length > 0) {
-      const updatedProviders = config.providers.map((p) => {
-        if (p.id === selectedProvider.id) {
-          return {
-            ...p,
-            models: res.models.map((m: any) => ({
-              id: m.id,
-              name: m.name,
-              group: m.group || 'synced',
-              enabled: true,
-            })),
-          };
-        }
-        return p;
+    try {
+      const res = await window.electronAPI.syncModels({
+        baseUrl: selectedProvider.baseUrl,
+        apiKey: selectedProvider.apiKey,
+        providerId: selectedProvider.id,
       });
-      saveConfig({ ...config, providers: updatedProviders });
-      setSyncFeedback({ success: true, message: `已成功同步 ${res.models.length} 个模型` });
-    } else {
-      setSyncFeedback({ success: false, message: '未能同步模型列表，可手动添加' });
+      if (res.success && res.models?.length > 0) {
+        const newModels: ProviderModel[] = res.models.map((m) => ({
+          id: m.id,
+          name: m.name || m.id,
+          group: selectedProvider.id,
+          enabled: true,
+        }));
+        updateCurrentProvider({ models: newModels });
+        setSyncFeedback({
+          success: true,
+          message: `成功同步 ${newModels.length} 个可用模型`,
+        });
+      } else {
+        setSyncFeedback({
+          success: false,
+          message: res.message || '获取模型列表失败，请检查 Base URL 与 API Key',
+        });
+      }
+    } catch (err: any) {
+      setSyncFeedback({
+        success: false,
+        message: err.message || '获取模型列表失败',
+      });
+    } finally {
+      setSyncStatus(false);
     }
-    setTimeout(() => {
-      setSyncFeedback(null);
-    }, 4000);
   };
 
-  // Toggle Provider Active
-  const handleToggleProvider = (providerId: string, enabled: boolean) => {
-    const updated = config.providers.map((p) => (p.id === providerId ? { ...p, enabled } : p));
-    saveConfig({ ...config, providers: updated });
-  };
+  // Delete Provider (Works for both built-in and custom)
+  const handleDeleteProvider = () => {
+    if (!config || !selectedProvider) return;
+    const isBuiltIn = selectedProvider.isBuiltIn ?? true;
+    const deletedIds = [...(config.deletedProviderIds || [])];
 
-  // Update Provider Details
-  const handleUpdateProvider = (fields: Partial<ProviderItem>) => {
-    const updated = config.providers.map((p) =>
-      p.id === selectedProvider.id ? { ...p, ...fields } : p
-    );
-    saveConfig({ ...config, providers: updated });
-  };
+    if (isBuiltIn && !deletedIds.includes(selectedProvider.id)) {
+      deletedIds.push(selectedProvider.id);
+    }
 
-  // Add Model to Provider
-  const handleAddModel = () => {
-    if (!newModelForm.id) return;
-    const newModel: ProviderModel = {
-      id: newModelForm.id,
-      name: newModelForm.name || newModelForm.id,
-      group: newModelForm.group || 'custom',
-      enabled: true,
-    };
-    const updated = config.providers.map((p) => {
-      if (p.id === selectedProvider.id) {
-        return { ...p, models: [...p.models, newModel] };
-      }
-      return p;
+    const remainingProviders = config.providers.filter((p) => p.id !== selectedProvider.id);
+    setShowDeleteConfirmModal(false);
+
+    saveConfig({
+      ...config,
+      providers: remainingProviders,
+      deletedProviderIds: deletedIds,
     });
-    saveConfig({ ...config, providers: updated });
-    setShowAddModelModal(false);
-    setNewModelForm({ id: '', name: '', group: 'default' });
+
+    if (remainingProviders.length > 0) {
+      setSelectedProviderId(remainingProviders[0].id);
+    }
   };
 
-  // Remove Model
-  const handleRemoveModel = (modelId: string) => {
-    const updated = config.providers.map((p) => {
-      if (p.id === selectedProvider.id) {
-        return { ...p, models: p.models.filter((m) => m.id !== modelId) };
-      }
-      return p;
+  // Restore Builtin Provider
+  const handleRestoreProvider = (providerId: string) => {
+    if (!config) return;
+    const builtin = BUILTIN_PROVIDERS.find((p) => p.id === providerId);
+    if (!builtin) return;
+
+    const newDeleted = (config.deletedProviderIds || []).filter((id) => id !== providerId);
+    const newProviders = [...config.providers.filter((p) => p.id !== providerId), builtin];
+
+    saveConfig({
+      ...config,
+      providers: newProviders,
+      deletedProviderIds: newDeleted,
     });
-    saveConfig({ ...config, providers: updated });
+    setSelectedProviderId(providerId);
   };
 
-  // Action Ordering & Enable/Disable
-  const enabledActions = config.actions.filter((a) => a.enabled);
-  const disabledActions = config.actions.filter((a) => !a.enabled);
-
-  const handleToggleActionEnabled = (actionId: string) => {
-    const updatedActions = config.actions.map((a) =>
-      a.id === actionId ? { ...a, enabled: !a.enabled } : a
-    );
-    saveConfig({ ...config, actions: updatedActions });
-  };
-
-  const handleMoveAction = (index: number, direction: 'up' | 'down') => {
-    const currentEnabled = [...enabledActions];
-    const targetIndex = direction === 'up' ? index - 1 : index + 1;
-    if (targetIndex < 0 || targetIndex >= currentEnabled.length) return;
-
-    const temp = currentEnabled[index];
-    currentEnabled[index] = currentEnabled[targetIndex];
-    currentEnabled[targetIndex] = temp;
-
-    const finalActions = [...currentEnabled, ...disabledActions];
-    saveConfig({ ...config, actions: finalActions });
-  };
-
-  const handleCreateCustomAction = () => {
-    if (!customActionForm.name.trim()) return;
-    const newAct: ActionItem = {
-      id: `custom_${Date.now()}`,
-      name: customActionForm.name,
-      icon: 'sparkles',
-      prompt: customActionForm.prompt,
+  // Add Custom Provider
+  const handleAddCustomProvider = () => {
+    if (!config || !customProviderForm.name.trim() || !customProviderForm.baseUrl.trim()) return;
+    const id = customProviderForm.id.trim() || `custom-${Date.now()}`;
+    const newProvider: ProviderItem = {
+      id,
+      name: customProviderForm.name.trim(),
+      baseUrl: customProviderForm.baseUrl.trim(),
+      apiKey: customProviderForm.apiKey.trim(),
       enabled: true,
       isBuiltIn: false,
+      models: [{ id: 'default', name: 'Default Model', group: 'custom', enabled: true }],
     };
-    saveConfig({ ...config, actions: [...config.actions, newAct] });
-    setShowCustomActionModal(false);
-    setCustomActionForm({ name: '', prompt: '{{text}}' });
+    saveConfig({
+      ...config,
+      providers: [newProvider, ...config.providers],
+    });
+    setSelectedProviderId(id);
+    setShowCustomProviderModal(false);
+    setCustomProviderForm({ id: '', name: '', baseUrl: '', apiKey: '' });
   };
 
-  const filteredProviders = config.providers.filter((p) =>
-    p.name.toLowerCase().includes(providerSearch.toLowerCase())
-  );
+  if (!config) {
+    return (
+      <div className="w-screen h-screen flex items-center justify-center bg-zinc-50 dark:bg-zinc-900 text-zinc-500 text-sm">
+        <RotateCw className="w-5 h-5 animate-spin mr-2" /> 正在加载 Cherry Studio 设置...
+      </div>
+    );
+  }
 
   return (
-    <div className="flex h-screen w-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 select-none font-sans text-xs">
-      {/* Primary Vertical Left Nav */}
-      <div className="w-16 border-r border-zinc-200 dark:border-zinc-800 bg-zinc-100/70 dark:bg-zinc-900/80 flex flex-col items-center py-4 justify-between shrink-0">
-        <div className="flex flex-col items-center gap-6">
-          <div className="text-xl select-none" title="Cherry Selection Lite">
-            🍒
+    <div className="w-screen h-screen flex bg-zinc-50 dark:bg-zinc-900 text-zinc-800 dark:text-zinc-100 font-sans select-none overflow-hidden">
+      {/* Left Sidebar */}
+      <div className="w-56 shrink-0 bg-white dark:bg-zinc-850 border-r border-zinc-200 dark:border-zinc-800 flex flex-col justify-between p-3">
+        <div className="flex flex-col gap-1">
+          {/* Header */}
+          <div className="flex items-center gap-2.5 px-3 py-3 mb-2 border-b border-zinc-100 dark:border-zinc-800/80">
+            <div className="w-7 h-7 rounded-lg bg-rose-500/10 flex items-center justify-center text-rose-500">
+              <Sparkles className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="font-semibold text-sm leading-tight text-zinc-900 dark:text-white">Cherry Studio</div>
+              <div className="text-[11px] text-zinc-400">划词助手设置</div>
+            </div>
           </div>
 
-          <div className="flex flex-col gap-3">
-            <button
-              onClick={() => setActiveMainTab('providers')}
-              className={`p-2.5 rounded-xl transition-colors flex flex-col items-center gap-1 ${
-                activeMainTab === 'providers'
-                  ? 'bg-white dark:bg-zinc-800 text-cherry-500 dark:text-cherry-400 shadow-xs'
-                  : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
-              }`}
-              title="模型服务"
-            >
-              <Server className="w-5 h-5" />
-              <span className="text-[10px] font-medium scale-90">服务</span>
-            </button>
+          {/* Navigation Items */}
+          <button
+            onClick={() => setActiveMainTab('providers')}
+            className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+              activeMainTab === 'providers'
+                ? 'bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 font-semibold'
+                : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+            }`}
+          >
+            <Server className="w-4 h-4 shrink-0" />
+            <span>模型服务商</span>
+            <span className="ml-auto text-[10px] bg-zinc-100 dark:bg-zinc-800 text-zinc-500 px-1.5 py-0.5 rounded-full">
+              {config.providers.length}
+            </span>
+          </button>
 
-            <button
-              onClick={() => setActiveMainTab('selection')}
-              className={`p-2.5 rounded-xl transition-colors flex flex-col items-center gap-1 ${
-                activeMainTab === 'selection'
-                  ? 'bg-white dark:bg-zinc-800 text-cherry-500 dark:text-cherry-400 shadow-xs'
-                  : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
-              }`}
-              title="划词助手"
-            >
-              <MousePointer className="w-5 h-5" />
-              <span className="text-[10px] font-medium scale-90">划词</span>
-            </button>
+          <button
+            onClick={() => setActiveMainTab('selection')}
+            className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+              activeMainTab === 'selection'
+                ? 'bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 font-semibold'
+                : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+            }`}
+          >
+            <MousePointer className="w-4 h-4 shrink-0" />
+            <span>划词助手</span>
+          </button>
 
-            <button
-              onClick={() => setActiveMainTab('general')}
-              className={`p-2.5 rounded-xl transition-colors flex flex-col items-center gap-1 ${
-                activeMainTab === 'general'
-                  ? 'bg-white dark:bg-zinc-800 text-cherry-500 dark:text-cherry-400 shadow-xs'
-                  : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
-              }`}
-              title="通用设置"
-            >
-              <Settings className="w-5 h-5" />
-              <span className="text-[10px] font-medium scale-90">设置</span>
-            </button>
-          </div>
+          <button
+            onClick={() => setActiveMainTab('general')}
+            className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+              activeMainTab === 'general'
+                ? 'bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 font-semibold'
+                : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+            }`}
+          >
+            <SettingsIcon className="w-4 h-4 shrink-0" />
+            <span>通用设置</span>
+          </button>
         </div>
 
-        <div className="text-[10px] text-zinc-400 font-mono">v1.0.1</div>
+        {/* Footer info */}
+        <div className="px-3 py-2 text-[11px] text-zinc-400 border-t border-zinc-100 dark:border-zinc-800">
+          <div>Cherry Selection Lite</div>
+          <div className="text-[10px] text-zinc-500">v1.0.4 (Windows 优化版)</div>
+        </div>
       </div>
 
-      {/* ========================================================================= */}
-      {/* TAB 1: 模型服务 (IMAGE 1 EXACT CLONE) */}
-      {/* ========================================================================= */}
-      {activeMainTab === 'providers' && (
-        <div className="flex-1 flex overflow-hidden">
-          {/* Sub-sidebar: Provider List */}
-          <div className="w-64 border-r border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 flex flex-col shrink-0">
-            {/* Search Header */}
-            <div className="p-3 border-b border-zinc-100 dark:border-zinc-800/60 flex items-center gap-2">
-              <div className="relative flex-1">
-                <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-zinc-400" />
-                <input
-                  type="text"
-                  placeholder="搜索模型平台..."
-                  value={providerSearch}
-                  onChange={(e) => setProviderSearch(e.target.value)}
-                  className="w-full bg-zinc-100 dark:bg-zinc-800 pl-8 pr-2 py-1.5 rounded-lg text-xs outline-none focus:ring-1 focus:ring-cherry-500 border border-transparent"
-                />
-              </div>
-              <button className="p-1.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 rounded-md">
-                <Filter className="w-3.5 h-3.5" />
-              </button>
-            </div>
-
-            {/* Provider List */}
-            <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
-              {filteredProviders.map((provider) => {
-                const isSelected = provider.id === selectedProviderId;
-                return (
-                  <div
-                    key={provider.id}
-                    onClick={() => setSelectedProviderId(provider.id)}
-                    className={`group flex items-center justify-between px-2.5 py-2 rounded-lg cursor-pointer transition-colors ${
-                      isSelected
-                        ? 'bg-zinc-100 dark:bg-zinc-800 text-zinc-900 dark:text-white font-medium'
-                        : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800/50'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <GripVertical className="w-3 h-3 text-zinc-300 dark:text-zinc-600 opacity-0 group-hover:opacity-100 transition-opacity" />
-                      <ProviderIcon id={provider.id} name={provider.name} />
-                      <span className="text-xs truncate max-w-[110px]">{provider.name}</span>
-                    </div>
-
-                    <div className="flex items-center gap-1.5">
-                      {provider.enabled && (
-                        <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-xs" />
-                      )}
-                      <MoreVertical className="w-3.5 h-3.5 text-zinc-400 opacity-0 group-hover:opacity-100" />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Add Provider Button */}
-            <div className="p-3 border-t border-zinc-100 dark:border-zinc-800/60">
-              <button
-                onClick={() => {
-                  const id = `custom_${Date.now()}`;
-                  const newP: ProviderItem = {
-                    id,
-                    name: '新服务商',
-                    apiKey: '',
-                    baseUrl: 'https://api.openai.com/v1',
-                    enabled: false,
-                    models: [{ id: 'gpt-4o', name: 'GPT-4o', group: 'default', enabled: true }],
-                  };
-                  saveConfig({ ...config, providers: [...config.providers, newP] });
-                  setSelectedProviderId(id);
-                }}
-                className="w-full py-1.5 px-3 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 font-medium text-xs flex items-center justify-center gap-1.5 shadow-xs transition-colors"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>添加服务商</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Right Detail Pane */}
-          {selectedProvider && (
-            <div className="flex-1 overflow-y-auto p-6 bg-zinc-50 dark:bg-zinc-950 flex flex-col space-y-6 max-w-2xl">
-              {/* Header: Name, Gear, Toggle */}
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <h2 className="text-base font-bold text-zinc-900 dark:text-white">
-                    {selectedProvider.name}
-                  </h2>
-                  <button className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200">
-                    <Settings className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-
-                <Switch
-                  checked={selectedProvider.enabled}
-                  onChange={(val) => handleToggleProvider(selectedProvider.id, val)}
-                />
-              </div>
-
-              {/* API 密钥 */}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
-                    API 密钥
-                  </label>
-                  {selectedProvider.docUrl && (
+      {/* Main Area */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* TAB 1: PROVIDER SETTINGS */}
+        {activeMainTab === 'providers' && (
+          <div className="flex-1 flex overflow-hidden">
+            {/* Middle: Provider List */}
+            <div className="w-72 border-r border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-850 flex flex-col">
+              {/* Search & Tabs */}
+              <div className="p-3 border-b border-zinc-100 dark:border-zinc-800 flex flex-col gap-2">
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-zinc-400" />
+                  <input
+                    type="text"
+                    value={providerSearch}
+                    onChange={(e) => setProviderSearch(e.target.value)}
+                    placeholder="搜索服务商..."
+                    className="w-full pl-8 pr-3 py-1.5 bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg text-xs focus:outline-none focus:border-rose-500 dark:focus:border-rose-500 transition-colors"
+                  />
+                  {providerSearch && (
                     <button
-                      onClick={() => window.electronAPI.openExternal(selectedProvider.docUrl!)}
-                      className="text-xs text-blue-500 hover:underline flex items-center gap-1"
+                      onClick={() => setProviderSearch('')}
+                      className="absolute right-2 top-2 text-zinc-400 hover:text-zinc-600"
                     >
-                      <span>获取密钥</span>
+                      <X className="w-3.5 h-3.5" />
                     </button>
                   )}
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <div className="relative flex-1">
-                    <input
-                      type={showApiKey ? 'text' : 'password'}
-                      value={selectedProvider.apiKey}
-                      onChange={(e) => handleUpdateProvider({ apiKey: e.target.value })}
-                      placeholder="sk-..."
-                      className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg px-3 py-2 text-xs font-mono outline-none focus:ring-1 focus:ring-cherry-500 pr-16"
+                <div className="flex gap-1 p-0.5 bg-zinc-100 dark:bg-zinc-800 rounded-lg text-xs">
+                  <button
+                    onClick={() => setProviderFilterTab('all')}
+                    className={`flex-1 py-1 text-center rounded-md text-[11px] font-medium transition-colors cursor-pointer ${
+                      providerFilterTab === 'all'
+                        ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-xs'
+                        : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+                    }`}
+                  >
+                    全部
+                  </button>
+                  <button
+                    onClick={() => setProviderFilterTab('enabled')}
+                    className={`flex-1 py-1 text-center rounded-md text-[11px] font-medium transition-colors cursor-pointer ${
+                      providerFilterTab === 'enabled'
+                        ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-xs'
+                        : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+                    }`}
+                  >
+                    已启用
+                  </button>
+                  <button
+                    onClick={() => setProviderFilterTab('custom')}
+                    className={`flex-1 py-1 text-center rounded-md text-[11px] font-medium transition-colors cursor-pointer ${
+                      providerFilterTab === 'custom'
+                        ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-xs'
+                        : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+                    }`}
+                  >
+                    自定义
+                  </button>
+                </div>
+              </div>
+
+              {/* Provider List Items */}
+              <div className="flex-1 overflow-y-auto divide-y divide-zinc-100 dark:divide-zinc-800/60 p-1.5">
+                {filteredProviders.map((provider) => {
+                  const isSelected = selectedProvider?.id === provider.id;
+                  return (
+                    <div
+                      key={provider.id}
+                      onClick={() => {
+                        setSelectedProviderId(provider.id);
+                        setTestStatus({ loading: false });
+                        setSyncFeedback(null);
+                      }}
+                      className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg cursor-pointer transition-all ${
+                        isSelected
+                          ? 'bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 font-medium'
+                          : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/60 text-zinc-700 dark:text-zinc-300'
+                      }`}
+                    >
+                      <ProviderIcon id={provider.id} name={provider.name} className="w-5 h-5 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-xs truncate font-medium flex items-center gap-1.5">
+                          <span>{provider.name}</span>
+                          {provider.enabled && (
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" title="已启用" />
+                          )}
+                        </div>
+                        <div className="text-[10px] text-zinc-400 truncate">
+                          {provider.models.length} 个模型
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {filteredProviders.length === 0 && (
+                  <div className="p-6 text-center text-xs text-zinc-400">
+                    未找到匹配的服务商
+                  </div>
+                )}
+              </div>
+
+              {/* Bottom Actions */}
+              <div className="p-2.5 border-t border-zinc-100 dark:border-zinc-800 flex gap-2">
+                <button
+                  onClick={() => setShowCustomProviderModal(true)}
+                  className="flex-1 flex items-center justify-center gap-1 py-1.5 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 rounded-lg text-xs font-medium transition-colors cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>添加自定义</span>
+                </button>
+
+                {deletedBuiltins.length > 0 && (
+                  <button
+                    onClick={() => setShowRestoreModal(true)}
+                    className="flex items-center justify-center gap-1 px-2.5 py-1.5 bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 dark:hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 rounded-lg text-xs font-medium transition-colors cursor-pointer"
+                    title={`有 ${deletedBuiltins.length} 个内置服务商已被移除，点击恢复`}
+                  >
+                    <Undo2 className="w-3.5 h-3.5" />
+                    <span>恢复({deletedBuiltins.length})</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Right: Selected Provider Details */}
+            {selectedProvider ? (
+              <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-zinc-50 dark:bg-zinc-900">
+                {/* Header Card */}
+                <div className="bg-white dark:bg-zinc-850 p-5 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-2xs flex items-center justify-between">
+                  <div className="flex items-center gap-3.5">
+                    <ProviderIcon id={selectedProvider.id} name={selectedProvider.name} className="w-9 h-9 shrink-0" />
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-base text-zinc-900 dark:text-white">
+                          {selectedProvider.name}
+                        </span>
+                        {selectedProvider.isBuiltIn && (
+                          <span className="text-[10px] bg-zinc-100 dark:bg-zinc-800 text-zinc-500 px-2 py-0.5 rounded-full">
+                            内置服务商
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-zinc-400 flex items-center gap-3 mt-1">
+                        {selectedProvider.website?.official && (
+                          <a
+                            href={selectedProvider.website.official}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="hover:text-rose-500 flex items-center gap-1"
+                          >
+                            <span>官网</span>
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                        )}
+                        {selectedProvider.website?.apiKey && (
+                          <a
+                            href={selectedProvider.website.apiKey}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="hover:text-rose-500 flex items-center gap-1"
+                          >
+                            <span>获取 API Key</span>
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                        )}
+                        {selectedProvider.website?.docs && (
+                          <a
+                            href={selectedProvider.website.docs}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="hover:text-rose-500 flex items-center gap-1"
+                          >
+                            <span>文档</span>
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => setShowDeleteConfirmModal(true)}
+                      className="p-1.5 text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer"
+                      title="删除此服务商"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                    <div className="h-4 w-[1px] bg-zinc-200 dark:bg-zinc-700" />
+                    <Switch
+                      checked={selectedProvider.enabled}
+                      onChange={(checked) => updateCurrentProvider({ enabled: checked })}
                     />
-                    <div className="absolute right-2 top-2 flex items-center gap-1.5 text-zinc-400">
+                  </div>
+                </div>
+
+                {/* API Configuration Card */}
+                <div className="bg-white dark:bg-zinc-850 p-5 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-2xs space-y-4">
+                  <div className="text-xs font-semibold text-zinc-900 dark:text-white">API 接口与凭据</div>
+
+                  {/* API Key */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs text-zinc-500 font-medium">API 密钥 (API Key)</label>
+                    <div className="relative">
+                      <input
+                        type={showApiKey ? 'text' : 'password'}
+                        value={selectedProvider.apiKey}
+                        onChange={(e) => updateCurrentProvider({ apiKey: e.target.value })}
+                        placeholder="sk-..."
+                        className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg text-xs font-mono focus:outline-none focus:border-rose-500 dark:focus:border-rose-500 pr-10"
+                      />
                       <button
                         type="button"
                         onClick={() => setShowApiKey(!showApiKey)}
-                        className="hover:text-zinc-600 dark:hover:text-zinc-200"
+                        className="absolute right-2.5 top-2.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 cursor-pointer"
                       >
-                        {showApiKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                        {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                       </button>
-                      <Key className="w-3.5 h-3.5 text-zinc-400" />
                     </div>
                   </div>
 
-                  <button
-                    onClick={handleTestConnection}
-                    disabled={testStatus.loading}
-                    className="px-3 py-2 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-xs font-medium text-zinc-700 dark:text-zinc-200 flex items-center gap-1 shadow-xs transition-colors shrink-0"
-                  >
-                    {testStatus.loading ? (
-                      <RotateCw className="w-3.5 h-3.5 animate-spin text-cherry-500" />
-                    ) : (
-                      <span>检测</span>
-                    )}
-                  </button>
-                </div>
-
-                {testStatus.message && (
-                  <div
-                    className={`mt-1.5 p-2 rounded-md text-[11px] flex items-center gap-1.5 ${
-                      testStatus.success
-                        ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400'
-                        : 'bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400'
-                    }`}
-                  >
-                    {testStatus.success ? <Check className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
-                    <span>{testStatus.message}</span>
-                  </div>
-                )}
-              </div>
-
-              {/* API 地址 */}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
-                    API 地址
-                  </label>
-                  <span className="text-xs text-blue-500 hover:underline cursor-pointer">
-                    添加端点
-                  </span>
-                </div>
-
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={selectedProvider.baseUrl}
-                    onChange={(e) => handleUpdateProvider({ baseUrl: e.target.value })}
-                    placeholder="https://api.openai.com/v1"
-                    className="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg px-3 py-2 text-xs font-mono outline-none focus:ring-1 focus:ring-cherry-500 pr-8"
-                  />
-                  <button className="absolute right-2.5 top-2.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200">
-                    <Settings className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-
-              {/* 模型 (Models) Section */}
-              <div className="space-y-3 pt-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <span className="font-bold text-xs text-zinc-800 dark:text-zinc-200">模型</span>
-                    <div className="flex items-center gap-2 text-zinc-400">
-                      <FileText className="w-3.5 h-3.5 hover:text-zinc-600 cursor-pointer" />
-                      <CheckSquare className="w-3.5 h-3.5 hover:text-zinc-600 cursor-pointer" />
-                      <Search className="w-3.5 h-3.5 hover:text-zinc-600 cursor-pointer" />
-                      <Filter className="w-3.5 h-3.5 hover:text-zinc-600 cursor-pointer" />
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={handleSyncModels}
-                      disabled={syncStatus}
-                      className="px-2.5 py-1 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-[11px] font-medium text-zinc-700 dark:text-zinc-200 flex items-center gap-1 shadow-xs"
-                    >
-                      <RotateCw className={`w-3 h-3 ${syncStatus ? 'animate-spin' : ''}`} />
-                      <span>同步模型</span>
-                    </button>
-                    <button
-                      onClick={() => setShowAddModelModal(true)}
-                      className="p-1 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:bg-zinc-50 text-zinc-700 dark:text-zinc-200 shadow-xs"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-
-                {syncFeedback && (
-                  <div
-                    className={`p-2 rounded-lg text-[11px] flex items-center gap-1.5 animate-in fade-in duration-150 ${
-                      syncFeedback.success
-                        ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/40'
-                        : 'bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800/40'
-                    }`}
-                  >
-                    {syncFeedback.success ? (
-                      <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                    ) : (
-                      <AlertCircle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                    )}
-                    <span>{syncFeedback.message}</span>
-                  </div>
-                )}
-
-                {/* Model Groups */}
-                <div className="border border-zinc-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 overflow-hidden divide-y divide-zinc-100 dark:divide-zinc-800/60">
-                  <div className="px-3 py-2 bg-zinc-50/70 dark:bg-zinc-800/40 flex items-center justify-between text-zinc-500 font-medium text-[11px]">
-                    <span>⌄ hy (群组)</span>
-                    <button className="text-zinc-400 hover:text-red-500">
-                      <Minus className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-
-                  {selectedProvider.models.map((m) => (
-                    <div
-                      key={m.id}
-                      className="px-3.5 py-2.5 flex items-center justify-between hover:bg-zinc-50/50 dark:hover:bg-zinc-800/30 transition-colors"
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <span className="w-4 h-4 rounded-full bg-blue-500 flex items-center justify-center text-white text-[9px] font-bold">
-                          ●
-                        </span>
-                        <span className="text-xs text-zinc-800 dark:text-zinc-200 font-medium">
-                          {m.name}
-                        </span>
-                      </div>
-
-                      <div className="flex items-center gap-2 text-zinc-400">
-                        <button className="hover:text-zinc-600 dark:hover:text-zinc-200">
-                          <Settings className="w-3.5 h-3.5" />
-                        </button>
+                  {/* Base URL */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs text-zinc-500 font-medium">服务接口地址 (Base URL)</label>
+                      {selectedProvider.defaultBaseUrl && selectedProvider.baseUrl !== selectedProvider.defaultBaseUrl && (
                         <button
-                          onClick={() => handleRemoveModel(m.id)}
-                          className="hover:text-red-500"
+                          onClick={() => updateCurrentProvider({ baseUrl: selectedProvider.defaultBaseUrl })}
+                          className="text-[11px] text-rose-500 hover:underline cursor-pointer"
                         >
-                          <Minus className="w-3.5 h-3.5" />
+                          恢复默认地址
                         </button>
+                      )}
+                    </div>
+                    <input
+                      type="text"
+                      value={selectedProvider.baseUrl}
+                      onChange={(e) => updateCurrentProvider({ baseUrl: e.target.value })}
+                      placeholder="https://api.openai.com/v1"
+                      className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg text-xs font-mono focus:outline-none focus:border-rose-500 dark:focus:border-rose-500"
+                    />
+                  </div>
+
+                  {/* Test Connection Button & Status */}
+                  <div className="pt-2 flex items-center justify-between border-t border-zinc-100 dark:border-zinc-800">
+                    <button
+                      onClick={handleTestConnection}
+                      disabled={testStatus.loading}
+                      className="flex items-center gap-1.5 px-3.5 py-1.5 bg-rose-500 hover:bg-rose-600 active:bg-rose-700 text-white rounded-lg text-xs font-medium transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      {testStatus.loading ? (
+                        <RotateCw className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Check className="w-3.5 h-3.5" />
+                      )}
+                      <span>测试连接</span>
+                    </button>
+
+                    {testStatus.message && (
+                      <div
+                        className={`text-xs flex items-center gap-1.5 font-medium ${
+                          testStatus.success ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'
+                        }`}
+                      >
+                        {testStatus.success ? <Check className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
+                        <span>{testStatus.message}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Model List Section */}
+                <div className="bg-white dark:bg-zinc-850 p-5 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-2xs space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-xs font-semibold text-zinc-900 dark:text-white">可用模型列表</div>
+                      <div className="text-[11px] text-zinc-400 mt-0.5">
+                        共 {selectedProvider.models.length} 个模型已配置
                       </div>
                     </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleSyncModels}
+                        disabled={syncStatus}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 rounded-lg text-xs font-medium transition-colors cursor-pointer disabled:opacity-50"
+                      >
+                        <RotateCw className={`w-3.5 h-3.5 ${syncStatus ? 'animate-spin' : ''}`} />
+                        <span>获取模型列表</span>
+                      </button>
+
+                      <button
+                        onClick={() => setShowAddModelModal(true)}
+                        className="flex items-center gap-1 px-3 py-1.5 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 rounded-lg text-xs font-medium transition-colors cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>添加模型</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {syncFeedback && (
+                    <div
+                      className={`p-2.5 rounded-lg text-xs flex items-center gap-2 ${
+                        syncFeedback.success
+                          ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                          : 'bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400'
+                      }`}
+                    >
+                      {syncFeedback.success ? <Check className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
+                      <span>{syncFeedback.message}</span>
+                    </div>
+                  )}
+
+                  {/* Model Search Input */}
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-zinc-400" />
+                    <input
+                      type="text"
+                      value={modelSearch}
+                      onChange={(e) => setModelSearch(e.target.value)}
+                      placeholder="搜索模型名称或标识符..."
+                      className="w-full pl-8 pr-3 py-1.5 bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg text-xs focus:outline-none focus:border-rose-500 dark:focus:border-rose-500"
+                    />
+                  </div>
+
+                  {/* Models Table */}
+                  <div className="border border-zinc-100 dark:border-zinc-800 rounded-lg divide-y divide-zinc-100 dark:divide-zinc-800/80 max-h-72 overflow-y-auto">
+                    {selectedProvider.models
+                      .filter((m) =>
+                        modelSearch
+                          ? m.name.toLowerCase().includes(modelSearch.toLowerCase()) ||
+                            m.id.toLowerCase().includes(modelSearch.toLowerCase())
+                          : true
+                      )
+                      .map((model) => (
+                        <div
+                          key={model.id}
+                          className="flex items-center justify-between px-3.5 py-2.5 hover:bg-zinc-50 dark:hover:bg-zinc-800/40 text-xs"
+                        >
+                          <div className="flex flex-col min-w-0 pr-3">
+                            <span className="font-medium text-zinc-800 dark:text-zinc-200 truncate">{model.name}</span>
+                            <span className="text-[10px] text-zinc-400 font-mono truncate">{model.id}</span>
+                          </div>
+                          <div className="flex items-center gap-3 shrink-0">
+                            <Switch
+                              checked={model.enabled !== false}
+                              onChange={(checked) => {
+                                const newModels = selectedProvider.models.map((m) =>
+                                  m.id === model.id ? { ...m, enabled: checked } : m
+                                );
+                                updateCurrentProvider({ models: newModels });
+                              }}
+                            />
+                            <button
+                              onClick={() => {
+                                const newModels = selectedProvider.models.filter((m) => m.id !== model.id);
+                                updateCurrentProvider({ models: newModels });
+                              }}
+                              className="text-zinc-400 hover:text-red-500 cursor-pointer"
+                              title="删除模型"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+
+                    {selectedProvider.models.length === 0 && (
+                      <div className="p-8 text-center text-xs text-zinc-400">
+                        暂无模型，点击右上角「获取模型列表」或「添加模型」
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="flex-1 flex items-center justify-center text-zinc-400 text-xs">
+                请在左侧选择一个服务商
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB 2: SELECTION ASSISTANT SETTINGS */}
+        {activeMainTab === 'selection' && (
+          <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-zinc-50 dark:bg-zinc-900">
+            {/* Master Toggle */}
+            <div className="bg-white dark:bg-zinc-850 p-5 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-2xs flex items-center justify-between">
+              <div>
+                <div className="font-semibold text-sm text-zinc-900 dark:text-white">启用划词助手 (Selection Assistant)</div>
+                <div className="text-xs text-zinc-400 mt-0.5">选中文本时显示浮动工具栏，快速唤出 AI 动作</div>
+              </div>
+              <Switch
+                checked={config.selection.enabled}
+                onChange={(checked) =>
+                  saveConfig({
+                    ...config,
+                    selection: { ...config.selection, enabled: checked },
+                  })
+                }
+              />
+            </div>
+
+            {/* Interaction Settings */}
+            <div className="bg-white dark:bg-zinc-850 p-5 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-2xs space-y-4">
+              <div className="text-xs font-semibold text-zinc-900 dark:text-white">交互与触发方式</div>
+
+              {/* Trigger Mode */}
+              <div className="flex items-center justify-between py-2 border-b border-zinc-100 dark:border-zinc-800">
+                <div>
+                  <div className="text-xs font-medium text-zinc-800 dark:text-zinc-200">触发模式</div>
+                  <div className="text-[11px] text-zinc-400">选择划选文本时的工具栏弹出时机</div>
+                </div>
+                <select
+                  value={config.selection.triggerMode}
+                  onChange={(e) =>
+                    saveConfig({
+                      ...config,
+                      selection: { ...config.selection, triggerMode: e.target.value as any },
+                    })
+                  }
+                  className="bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:border-rose-500"
+                >
+                  <option value="ctrlkey">防误触：选中文本后按 Ctrl 唤出</option>
+                  <option value="selection">即时：划词选中文本后立即弹出</option>
+                  <option value="shortcut">快捷键：仅按全局快捷键唤出</option>
+                </select>
+              </div>
+
+              {/* Global Shortcut */}
+              <div className="flex items-center justify-between py-2 border-b border-zinc-100 dark:border-zinc-800">
+                <div>
+                  <div className="text-xs font-medium text-zinc-800 dark:text-zinc-200">唤醒全局快捷键</div>
+                  <div className="text-[11px] text-zinc-400">在任意 Windows 应用中抓取选中文本并弹出工具栏</div>
+                </div>
+                <span className="px-2 py-1 bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 rounded font-mono text-xs border border-zinc-200 dark:border-zinc-700">
+                  {config.selection.shortcut || 'Alt+S'}
+                </span>
+              </div>
+
+              {/* Compact Mode */}
+              <div className="flex items-center justify-between py-2 border-b border-zinc-100 dark:border-zinc-800">
+                <div>
+                  <div className="text-xs font-medium text-zinc-800 dark:text-zinc-200">紧凑模式 (Compact Toolbar)</div>
+                  <div className="text-[11px] text-zinc-400">工具栏仅展示图标，不展示文字标签</div>
+                </div>
+                <Switch
+                  checked={config.selection.compact}
+                  onChange={(checked) =>
+                    saveConfig({
+                      ...config,
+                      selection: { ...config.selection, compact: checked },
+                    })
+                  }
+                />
+              </div>
+
+              {/* Auto Pin */}
+              <div className="flex items-center justify-between py-2 border-b border-zinc-100 dark:border-zinc-800">
+                <div>
+                  <div className="text-xs font-medium text-zinc-800 dark:text-zinc-200">结果窗口自动置顶 (Auto Pin)</div>
+                  <div className="text-[11px] text-zinc-400">动作结果窗口默认保持在其他窗口之上</div>
+                </div>
+                <Switch
+                  checked={config.actionWindow.autoPin}
+                  onChange={(checked) =>
+                    saveConfig({
+                      ...config,
+                      actionWindow: { ...config.actionWindow, autoPin: checked },
+                    })
+                  }
+                />
+              </div>
+
+              {/* Follow Toolbar */}
+              <div className="flex items-center justify-between py-2">
+                <div>
+                  <div className="text-xs font-medium text-zinc-800 dark:text-zinc-200">结果窗口跟随工具栏位置</div>
+                  <div className="text-[11px] text-zinc-400">点击动作后结果窗口在工具栏下方就近展开</div>
+                </div>
+                <Switch
+                  checked={config.actionWindow.followToolbar}
+                  onChange={(checked) =>
+                    saveConfig({
+                      ...config,
+                      actionWindow: { ...config.actionWindow, followToolbar: checked },
+                    })
+                  }
+                />
+              </div>
+            </div>
+
+            {/* Action Items Manager */}
+            <div className="bg-white dark:bg-zinc-850 p-5 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-2xs space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-xs font-semibold text-zinc-900 dark:text-white">快捷动作栏管理</div>
+                  <div className="text-[11px] text-zinc-400 mt-0.5">启用、禁用、排序或自定义 Prompt 动作</div>
+                </div>
+
+                <button
+                  onClick={() => {
+                    setEditingAction({
+                      id: `custom-${Date.now()}`,
+                      name: '',
+                      icon: 'sparkles',
+                      prompt: '{{text}}',
+                      enabled: true,
+                      isBuiltIn: false,
+                    });
+                    setShowActionModal(true);
+                  }}
+                  className="flex items-center gap-1 px-3 py-1.5 bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 text-rose-600 dark:text-rose-400 rounded-lg text-xs font-medium transition-colors cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>添加自定义动作</span>
+                </button>
+              </div>
+
+              <div className="border border-zinc-100 dark:border-zinc-800 rounded-lg divide-y divide-zinc-100 dark:divide-zinc-800/80">
+                {config.actions.map((act, index) => (
+                  <div
+                    key={act.id}
+                    className="flex items-center justify-between px-3.5 py-2.5 hover:bg-zinc-50 dark:hover:bg-zinc-800/40 text-xs"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <ActionIcon id={act.id} className="w-4 h-4 text-zinc-500" />
+                      <span className="font-medium text-zinc-800 dark:text-zinc-200">{act.name}</span>
+                      {act.isBuiltIn && (
+                        <span className="text-[10px] bg-zinc-100 dark:bg-zinc-800 text-zinc-400 px-1.5 py-0.2 rounded">
+                          内置
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => {
+                          if (index === 0) return;
+                          const newActions = [...config.actions];
+                          const temp = newActions[index - 1];
+                          newActions[index - 1] = newActions[index];
+                          newActions[index] = temp;
+                          saveConfig({ ...config, actions: newActions });
+                        }}
+                        disabled={index === 0}
+                        className="p-1 text-zinc-400 hover:text-zinc-600 disabled:opacity-30 cursor-pointer"
+                        title="上移"
+                      >
+                        <ArrowUp className="w-3.5 h-3.5" />
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          if (index === config.actions.length - 1) return;
+                          const newActions = [...config.actions];
+                          const temp = newActions[index + 1];
+                          newActions[index + 1] = newActions[index];
+                          newActions[index] = temp;
+                          saveConfig({ ...config, actions: newActions });
+                        }}
+                        disabled={index === config.actions.length - 1}
+                        className="p-1 text-zinc-400 hover:text-zinc-600 disabled:opacity-30 cursor-pointer"
+                        title="下移"
+                      >
+                        <ArrowDown className="w-3.5 h-3.5" />
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          setEditingAction(act);
+                          setShowActionModal(true);
+                        }}
+                        className="p-1 text-zinc-400 hover:text-zinc-600 cursor-pointer"
+                        title="编辑 Prompt"
+                      >
+                        <Sliders className="w-3.5 h-3.5" />
+                      </button>
+
+                      <Switch
+                        checked={act.enabled}
+                        onChange={(checked) => {
+                          const newActions = config.actions.map((a) => (a.id === act.id ? { ...a, enabled: checked } : a));
+                          saveConfig({ ...config, actions: newActions });
+                        }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 3: GENERAL SETTINGS */}
+        {activeMainTab === 'general' && (
+          <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-zinc-50 dark:bg-zinc-900">
+            <div className="bg-white dark:bg-zinc-850 p-5 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-2xs space-y-4">
+              <div className="text-xs font-semibold text-zinc-900 dark:text-white">外观与主题</div>
+
+              <div className="flex items-center justify-between py-2 border-b border-zinc-100 dark:border-zinc-800">
+                <div>
+                  <div className="text-xs font-medium text-zinc-800 dark:text-zinc-200">色彩模式</div>
+                  <div className="text-[11px] text-zinc-400">浅色、深色或随系统自动切换</div>
+                </div>
+
+                <div className="flex gap-1 p-0.5 bg-zinc-100 dark:bg-zinc-800 rounded-lg text-xs">
+                  {(['light', 'dark', 'system'] as const).map((t) => (
+                    <button
+                      key={t}
+                      onClick={() => saveConfig({ ...config, theme: t })}
+                      className={`px-3 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer ${
+                        config.theme === t
+                          ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-white shadow-xs'
+                          : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+                      }`}
+                    >
+                      {t === 'light' ? '浅色' : t === 'dark' ? '深色' : '跟随系统'}
+                    </button>
                   ))}
                 </div>
               </div>
             </div>
-          )}
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* TAB 2: 划词助手 (IMAGE 2 EXACT CLONE) */}
-      {/* ========================================================================= */}
-      {activeMainTab === 'selection' && (
-        <div className="flex-1 overflow-y-auto p-8 max-w-3xl space-y-6">
-          {/* Top Section: 取词方式 & 紧凑模式 */}
-          <div className="space-y-4">
-            {/* 取词方式 */}
-            <div className="space-y-1">
-              <div className="flex items-center gap-1.5">
-                <span className="font-semibold text-xs text-zinc-800 dark:text-zinc-200">
-                  取词方式
-                </span>
-                <HelpCircle className="w-3.5 h-3.5 text-zinc-400 cursor-pointer" />
-              </div>
-              <p className="text-[11px] text-zinc-400">划词后，触发取词并显示工具栏的方式</p>
-
-              <div className="flex items-center gap-6 pt-1">
-                {[
-                  { id: 'selection', label: '划词' },
-                  { id: 'ctrlkey', label: 'Ctrl 键' },
-                  { id: 'shortcut', label: '快捷键' },
-                ].map((item) => (
-                  <label
-                    key={item.id}
-                    className="flex items-center gap-2 cursor-pointer text-xs font-medium text-zinc-700 dark:text-zinc-300"
-                  >
-                    <input
-                      type="radio"
-                      name="triggerMode"
-                      value={item.id}
-                      checked={selectionConfig.triggerMode === item.id}
-                      onChange={() =>
-                        saveConfig({
-                          ...config,
-                          selection: { ...selectionConfig, triggerMode: item.id as any },
-                        })
-                      }
-                      className="accent-emerald-500 w-3.5 h-3.5"
-                    />
-                    <span>{item.label}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            {/* 紧凑模式 */}
-            <div className="flex items-center justify-between pt-2">
-              <div className="space-y-0.5">
-                <span className="font-semibold text-xs text-zinc-800 dark:text-zinc-200 block">
-                  紧凑模式
-                </span>
-                <span className="text-[11px] text-zinc-400">紧凑模式下，只显示图标，不显示文字</span>
-              </div>
-              <Switch
-                checked={selectionConfig.compact}
-                onChange={(val) =>
-                  saveConfig({
-                    ...config,
-                    selection: { ...selectionConfig, compact: val },
-                  })
-                }
-              />
-            </div>
           </div>
+        )}
+      </div>
 
-          {/* CARD 1: 功能窗口 (Window Settings) */}
-          <div className="border border-zinc-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 p-4 space-y-4">
-            <h3 className="font-bold text-xs text-zinc-900 dark:text-white">功能窗口</h3>
-
-            {/* 跟随工具栏 */}
+      {/* MODAL 1: ADD CUSTOM PROVIDER */}
+      {showCustomProviderModal && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-white dark:bg-zinc-850 rounded-xl p-5 border border-zinc-200 dark:border-zinc-700 shadow-xl space-y-4 animate-in fade-in zoom-in-95">
             <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <span className="text-xs font-medium text-zinc-800 dark:text-zinc-200 block">
-                  跟随工具栏
-                </span>
-                <span className="text-[11px] text-zinc-400">
-                  窗口位置将跟随工具栏显示，禁用后则始终居中显示
-                </span>
-              </div>
-              <Switch
-                checked={actionWindowConfig.followToolbar}
-                onChange={(val) =>
-                  saveConfig({
-                    ...config,
-                    actionWindow: { ...actionWindowConfig, followToolbar: val },
-                  })
-                }
-              />
+              <span className="font-semibold text-sm">添加自定义服务商</span>
+              <button
+                onClick={() => setShowCustomProviderModal(false)}
+                className="text-zinc-400 hover:text-zinc-600"
+              >
+                <X className="w-4 h-4" />
+              </button>
             </div>
 
-            {/* 记住大小 */}
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <span className="text-xs font-medium text-zinc-800 dark:text-zinc-200 block">
-                  记住大小
-                </span>
-                <span className="text-[11px] text-zinc-400">应用运行期间，窗口会按上次调整的大小显示</span>
-              </div>
-              <Switch
-                checked={actionWindowConfig.rememberWinSize}
-                onChange={(val) =>
-                  saveConfig({
-                    ...config,
-                    actionWindow: { ...actionWindowConfig, rememberWinSize: val },
-                  })
-                }
-              />
-            </div>
-
-            {/* 自动关闭 */}
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <span className="text-xs font-medium text-zinc-800 dark:text-zinc-200 block">
-                  自动关闭
-                </span>
-                <span className="text-[11px] text-zinc-400">
-                  当窗口未置顶且失去焦点时，将自动关闭该窗口
-                </span>
-              </div>
-              <Switch
-                checked={actionWindowConfig.autoClose}
-                onChange={(val) =>
-                  saveConfig({
-                    ...config,
-                    actionWindow: { ...actionWindowConfig, autoClose: val },
-                  })
-                }
-              />
-            </div>
-
-            {/* 自动置顶 */}
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <span className="text-xs font-medium text-zinc-800 dark:text-zinc-200 block">
-                  自动置顶
-                </span>
-                <span className="text-[11px] text-zinc-400">默认将窗口置于顶部</span>
-              </div>
-              <Switch
-                checked={actionWindowConfig.autoPin}
-                onChange={(val) =>
-                  saveConfig({
-                    ...config,
-                    actionWindow: { ...actionWindowConfig, autoPin: val },
-                  })
-                }
-              />
-            </div>
-
-            {/* 透明度 */}
-            <div className="flex items-center justify-between pt-1">
-              <div className="space-y-0.5">
-                <span className="text-xs font-medium text-zinc-800 dark:text-zinc-200 block">
-                  透明度
-                </span>
-                <span className="text-[11px] text-zinc-400">
-                  设置窗口的默认透明度，100% 为完全不透明
-                </span>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="text-xs font-mono text-zinc-600 dark:text-zinc-300">
-                  {actionWindowConfig.opacity}%
-                </span>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-zinc-500 font-medium block mb-1">服务商名称</label>
                 <input
-                  type="range"
-                  min="30"
-                  max="100"
-                  value={actionWindowConfig.opacity}
-                  onChange={(e) =>
-                    saveConfig({
-                      ...config,
-                      actionWindow: {
-                        ...actionWindowConfig,
-                        opacity: parseInt(e.target.value),
-                      },
-                    })
-                  }
-                  className="w-28 accent-emerald-500 cursor-pointer"
+                  type="text"
+                  value={customProviderForm.name}
+                  onChange={(e) => setCustomProviderForm({ ...customProviderForm, name: e.target.value })}
+                  placeholder="例如：OneAPI, Local AI"
+                  className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg text-xs focus:outline-none focus:border-rose-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs text-zinc-500 font-medium block mb-1">Base URL</label>
+                <input
+                  type="text"
+                  value={customProviderForm.baseUrl}
+                  onChange={(e) => setCustomProviderForm({ ...customProviderForm, baseUrl: e.target.value })}
+                  placeholder="https://api.example.com/v1"
+                  className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg text-xs font-mono focus:outline-none focus:border-rose-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs text-zinc-500 font-medium block mb-1">API Key</label>
+                <input
+                  type="password"
+                  value={customProviderForm.apiKey}
+                  onChange={(e) => setCustomProviderForm({ ...customProviderForm, apiKey: e.target.value })}
+                  placeholder="sk-..."
+                  className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg text-xs font-mono focus:outline-none focus:border-rose-500"
                 />
               </div>
             </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                onClick={() => setShowCustomProviderModal(false)}
+                className="px-3 py-1.5 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 rounded-lg text-xs font-medium cursor-pointer"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleAddCustomProvider}
+                className="px-4 py-1.5 bg-rose-500 hover:bg-rose-600 text-white rounded-lg text-xs font-medium cursor-pointer"
+              >
+                保存
+              </button>
+            </div>
           </div>
+        </div>
+      )}
 
-          {/* CARD 2: 功能 (Actions & Models) */}
-          <div className="border border-zinc-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 p-4 space-y-4">
+      {/* MODAL 2: RESTORE DELETED BUILT-IN PROVIDERS */}
+      {showRestoreModal && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="w-full max-w-md bg-white dark:bg-zinc-850 rounded-xl p-5 border border-zinc-200 dark:border-zinc-700 shadow-xl space-y-4 animate-in fade-in zoom-in-95">
             <div className="flex items-center justify-between">
-              <h3 className="font-bold text-xs text-zinc-900 dark:text-white">功能</h3>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => {
-                    // reset to defaults
-                    window.location.reload();
-                  }}
-                  className="text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
-                >
-                  重置
-                </button>
-                <button
-                  onClick={() => setShowCustomActionModal(true)}
-                  className="px-2.5 py-1 rounded-lg border border-zinc-200 dark:border-zinc-700 text-xs font-medium text-zinc-700 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-800 flex items-center gap-1 shadow-xs"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>自定义功能</span>
-                </button>
-              </div>
-            </div>
-
-            {/* 默认助手模型 */}
-            <div className="flex items-center justify-between py-1">
-              <div className="space-y-0.5">
-                <span className="text-xs font-medium text-zinc-800 dark:text-zinc-200 block">
-                  默认助手模型
-                </span>
-                <span className="text-[11px] text-zinc-400">
-                  用于解释、总结、润色，以及使用默认模型的自定义功能。
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-xs text-zinc-700 dark:text-zinc-200 font-medium">
-                  <span className="text-purple-500">🔮</span>
-                  <span>{config.defaultAssistantModel.modelName}</span>
+              <div>
+                <span className="font-semibold text-sm">恢复已删除的内置服务商</span>
+                <div className="text-[11px] text-zinc-400 mt-0.5">
+                  共有 {deletedBuiltins.length} 个内置服务商可随时恢复
                 </div>
-                <button
-                  onClick={() => setActiveMainTab('providers')}
-                  className="px-2.5 py-1 rounded-lg border border-zinc-200 dark:border-zinc-700 text-xs text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 flex items-center gap-1"
-                >
-                  <ArrowRight className="w-3.5 h-3.5" />
-                  <span>前往模型设置</span>
-                </button>
               </div>
+              <button onClick={() => setShowRestoreModal(false)} className="text-zinc-400 hover:text-zinc-600">
+                <X className="w-4 h-4" />
+              </button>
             </div>
 
-            {/* 翻译模型 */}
-            <div className="flex items-center justify-between py-1 border-t border-zinc-100 dark:border-zinc-800/60 pt-3">
-              <div className="space-y-0.5">
-                <span className="text-xs font-medium text-zinc-800 dark:text-zinc-200 block">
-                  翻译模型
-                </span>
-                <span className="text-[11px] text-zinc-400">
-                  用于生成翻译结果；自动语言检测也可能使用快速模型。
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-xs text-zinc-700 dark:text-zinc-200 font-medium">
-                  <span className="w-2 h-2 rounded-full bg-blue-500" />
-                  <span>{config.defaultTranslateModel.modelName}</span>
-                </div>
-                <button
-                  onClick={() => setActiveMainTab('providers')}
-                  className="px-2.5 py-1 rounded-lg border border-zinc-200 dark:border-zinc-700 text-xs text-zinc-600 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 flex items-center gap-1"
-                >
-                  <ArrowRight className="w-3.5 h-3.5" />
-                  <span>前往模型设置</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Real-time Toolbar Preview (Center) */}
-            <div className="py-4 flex flex-col items-center justify-center">
-              <div className="bg-white dark:bg-zinc-800 border border-zinc-200/80 dark:border-zinc-700 rounded-full px-3 py-1.5 flex items-center gap-3 shadow-md">
-                <span className="text-base select-none">🍒</span>
-                {enabledActions.map((act) => (
-                  <div
-                    key={act.id}
-                    className="flex items-center gap-1 text-xs font-medium text-zinc-700 dark:text-zinc-200"
-                  >
-                    <ActionIcon id={act.id} className="w-3.5 h-3.5" />
-                    {!selectionConfig.compact && <span>{act.name}</span>}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Enabled Actions List */}
-            <div className="space-y-2">
-              {enabledActions.map((act, index) => (
-                <div
-                  key={act.id}
-                  className="flex items-center justify-between p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/40 hover:border-zinc-300 transition-colors"
-                >
-                  <div className="flex items-center gap-3">
-                    <ActionIcon id={act.id} className="w-4 h-4 text-zinc-600 dark:text-zinc-300" />
-                    <span className="text-xs font-medium text-zinc-800 dark:text-zinc-200">
-                      {act.name}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    {act.id === 'search' && (
-                      <span className="text-[11px] text-zinc-500 font-mono bg-zinc-200/60 dark:bg-zinc-700 px-2 py-0.5 rounded">
-                        G Google
-                      </span>
-                    )}
-                    <button className="text-zinc-400 hover:text-zinc-600 p-1">
-                      <Sliders className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => handleToggleActionEnabled(act.id)}
-                      className="text-zinc-400 hover:text-red-500 text-xs px-2 py-0.5 rounded hover:bg-zinc-200/50"
-                    >
-                      停用
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Divider */}
-            <div className="py-2 flex items-center gap-3 text-zinc-400 text-[11px]">
-              <div className="flex-1 h-[1px] bg-zinc-200 dark:bg-zinc-800" />
-              <span>
-                拖拽排序，移动到上方以启用功能 ({enabledActions.length}/{actionsList.length})
-              </span>
-              <div className="flex-1 h-[1px] bg-zinc-200 dark:bg-zinc-800" />
-            </div>
-
-            {/* Disabled Staging Actions */}
-            <div className="space-y-2 opacity-60">
-              {disabledActions.map((act) => (
-                <div
-                  key={act.id}
-                  className="flex items-center justify-between p-3 rounded-xl border border-dashed border-zinc-300 dark:border-zinc-700 bg-zinc-50/30 dark:bg-zinc-800/20"
-                >
-                  <div className="flex items-center gap-3">
-                    <ActionIcon id={act.id} className="w-4 h-4 text-zinc-500" />
-                    <span className="text-xs font-medium text-zinc-500">{act.name}</span>
+            <div className="max-h-60 overflow-y-auto divide-y divide-zinc-100 dark:divide-zinc-800 border border-zinc-100 dark:border-zinc-800 rounded-lg">
+              {deletedBuiltins.map((bp) => (
+                <div key={bp.id} className="flex items-center justify-between p-3 text-xs">
+                  <div className="flex items-center gap-2.5">
+                    <ProviderIcon id={bp.id} name={bp.name} className="w-5 h-5 shrink-0" />
+                    <span className="font-medium text-zinc-800 dark:text-zinc-200">{bp.name}</span>
                   </div>
 
                   <button
-                    onClick={() => handleToggleActionEnabled(act.id)}
-                    className="text-xs text-emerald-600 hover:underline px-2 py-0.5"
+                    onClick={() => handleRestoreProvider(bp.id)}
+                    className="flex items-center gap-1 px-2.5 py-1 bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 text-rose-600 dark:text-rose-400 rounded-md text-xs font-medium cursor-pointer"
                   >
-                    启用
+                    <Undo2 className="w-3 h-3" />
+                    <span>恢复</span>
                   </button>
                 </div>
               ))}
             </div>
+
+            <div className="flex justify-end pt-2">
+              <button
+                onClick={() => setShowRestoreModal(false)}
+                className="px-3 py-1.5 bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-200 rounded-lg text-xs font-medium cursor-pointer"
+              >
+                完成
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* ========================================================================= */}
-      {/* TAB 3: 通用设置 */}
-      {/* ========================================================================= */}
-      {activeMainTab === 'general' && (
-        <div className="flex-1 overflow-y-auto p-8 max-w-xl space-y-6">
-          <h2 className="text-sm font-bold text-zinc-900 dark:text-white">外观与通用设置</h2>
-
-          <div>
-            <label className="text-xs font-medium text-zinc-600 dark:text-zinc-300 block mb-2">
-              色彩主题
-            </label>
-            <div className="grid grid-cols-3 gap-2.5">
-              {[
-                { id: 'system', label: '跟随系统' },
-                { id: 'light', label: '浅色模式' },
-                { id: 'dark', label: '深色模式' },
-              ].map((t) => (
-                <button
-                  key={t.id}
-                  onClick={() => saveConfig({ ...config, theme: t.id as any })}
-                  className={`p-3 rounded-xl border text-center text-xs font-medium transition-colors ${
-                    config.theme === t.id
-                      ? 'border-cherry-500 bg-cherry-50 dark:bg-cherry-950/40 text-cherry-600 dark:text-cherry-400'
-                      : 'border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900'
-                  }`}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-xs space-y-2">
-            <span className="font-bold text-zinc-800 dark:text-zinc-200 block">
-              🍒 Cherry Selection Lite (Windows 专版)
-            </span>
-            <p className="text-zinc-500 dark:text-zinc-400 leading-relaxed">
-              基于 Cherry Studio Selection Assistant
-              深度精简重构的独立划词工具，保留完整原生交互体验与模型服务体系。
+      {/* MODAL 3: CONFIRM DELETE PROVIDER */}
+      {showDeleteConfirmModal && selectedProvider && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="w-full max-w-sm bg-white dark:bg-zinc-850 rounded-xl p-5 border border-zinc-200 dark:border-zinc-700 shadow-xl space-y-3 animate-in fade-in zoom-in-95">
+            <span className="font-semibold text-sm text-red-500">删除服务商确认</span>
+            <p className="text-xs text-zinc-600 dark:text-zinc-300">
+              确定要删除服务商 <span className="font-semibold text-zinc-900 dark:text-white">{selectedProvider.name}</span> 吗？
+              {selectedProvider.isBuiltIn && '（内置服务商删除后，可随时在「恢复内置服务商」中找回）'}
             </p>
-          </div>
-        </div>
-      )}
 
-      {/* Modal: Custom Action */}
-      {showCustomActionModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl w-96 p-5 space-y-3 shadow-2xl">
-            <h4 className="font-bold text-xs text-zinc-900 dark:text-white">添加自定义功能</h4>
-            <div>
-              <label className="text-[11px] text-zinc-500 block mb-1">功能名称</label>
-              <input
-                type="text"
-                value={customActionForm.name}
-                onChange={(e) => setCustomActionForm({ ...customActionForm, name: e.target.value })}
-                placeholder="例如: 语法纠错"
-                className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-2.5 py-1.5 text-xs outline-none focus:ring-1 focus:ring-cherry-500"
-              />
-            </div>
-            <div>
-              <label className="text-[11px] text-zinc-500 block mb-1">提示词模板 (包含 {'{{text}}'})</label>
-              <textarea
-                rows={4}
-                value={customActionForm.prompt}
-                onChange={(e) => setCustomActionForm({ ...customActionForm, prompt: e.target.value })}
-                className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg p-2.5 text-xs font-mono outline-none focus:ring-1 focus:ring-cherry-500"
-              />
-            </div>
             <div className="flex justify-end gap-2 pt-2">
               <button
-                onClick={() => setShowCustomActionModal(false)}
-                className="px-3 py-1.5 rounded-lg text-xs text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                onClick={() => setShowDeleteConfirmModal(false)}
+                className="px-3 py-1.5 bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-200 rounded-lg text-xs font-medium cursor-pointer"
               >
                 取消
               </button>
               <button
-                onClick={handleCreateCustomAction}
-                className="px-3.5 py-1.5 rounded-lg bg-cherry-500 text-white text-xs font-medium hover:bg-cherry-600"
+                onClick={handleDeleteProvider}
+                className="px-3.5 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded-lg text-xs font-medium cursor-pointer"
               >
-                确定添加
+                确认删除
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Modal: Add Model */}
+      {/* MODAL 4: ADD MODEL */}
       {showAddModelModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl w-96 p-5 space-y-3 shadow-2xl">
-            <h4 className="font-bold text-xs text-zinc-900 dark:text-white">添加模型</h4>
-            <div>
-              <label className="text-[11px] text-zinc-500 block mb-1">模型 ID</label>
-              <input
-                type="text"
-                value={newModelForm.id}
-                onChange={(e) => setNewModelForm({ ...newModelForm, id: e.target.value })}
-                placeholder="例如: gpt-4o-mini"
-                className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-2.5 py-1.5 text-xs font-mono outline-none focus:ring-1 focus:ring-cherry-500"
-              />
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="w-full max-w-sm bg-white dark:bg-zinc-850 rounded-xl p-5 border border-zinc-200 dark:border-zinc-700 shadow-xl space-y-3 animate-in fade-in zoom-in-95">
+            <span className="font-semibold text-sm">添加新模型</span>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-zinc-500 font-medium block mb-1">模型 ID (如 gpt-4o, claude-3-sonnet)</label>
+                <input
+                  type="text"
+                  value={newModelForm.id}
+                  onChange={(e) => setNewModelForm({ ...newModelForm, id: e.target.value })}
+                  placeholder="model-id"
+                  className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg text-xs font-mono focus:outline-none focus:border-rose-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs text-zinc-500 font-medium block mb-1">显示名称</label>
+                <input
+                  type="text"
+                  value={newModelForm.name}
+                  onChange={(e) => setNewModelForm({ ...newModelForm, name: e.target.value })}
+                  placeholder="如 GPT-4o"
+                  className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg text-xs focus:outline-none focus:border-rose-500"
+                />
+              </div>
             </div>
-            <div>
-              <label className="text-[11px] text-zinc-500 block mb-1">显示名称</label>
-              <input
-                type="text"
-                value={newModelForm.name}
-                onChange={(e) => setNewModelForm({ ...newModelForm, name: e.target.value })}
-                placeholder="例如: GPT 4o Mini"
-                className="w-full bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-2.5 py-1.5 text-xs outline-none focus:ring-1 focus:ring-cherry-500"
-              />
-            </div>
+
             <div className="flex justify-end gap-2 pt-2">
               <button
                 onClick={() => setShowAddModelModal(false)}
-                className="px-3 py-1.5 rounded-lg text-xs text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                className="px-3 py-1.5 bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-200 rounded-lg text-xs font-medium cursor-pointer"
               >
                 取消
               </button>
               <button
-                onClick={handleAddModel}
-                className="px-3.5 py-1.5 rounded-lg bg-cherry-500 text-white text-xs font-medium hover:bg-cherry-600"
+                onClick={() => {
+                  if (!newModelForm.id.trim() || !selectedProvider) return;
+                  const newModel: ProviderModel = {
+                    id: newModelForm.id.trim(),
+                    name: newModelForm.name.trim() || newModelForm.id.trim(),
+                    group: selectedProvider.id,
+                    enabled: true,
+                  };
+                  updateCurrentProvider({ models: [newModel, ...selectedProvider.models] });
+                  setShowAddModelModal(false);
+                  setNewModelForm({ id: '', name: '', group: 'custom' });
+                }}
+                className="px-3.5 py-1.5 bg-rose-500 hover:bg-rose-600 text-white rounded-lg text-xs font-medium cursor-pointer"
               >
                 添加
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 5: EDIT ACTION PROMPT */}
+      {showActionModal && editingAction && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="w-full max-w-lg bg-white dark:bg-zinc-850 rounded-xl p-5 border border-zinc-200 dark:border-zinc-700 shadow-xl space-y-3 animate-in fade-in zoom-in-95">
+            <span className="font-semibold text-sm">编辑动作 Prompt</span>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-zinc-500 font-medium block mb-1">动作名称</label>
+                <input
+                  type="text"
+                  value={editingAction.name}
+                  onChange={(e) => setEditingAction({ ...editingAction, name: e.target.value })}
+                  className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg text-xs focus:outline-none focus:border-rose-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs text-zinc-500 font-medium block mb-1">
+                  提示词 Prompt 模板（使用 <span className="font-mono text-rose-500">{`{{text}}`}</span> 代表选中文本）
+                </label>
+                <textarea
+                  rows={6}
+                  value={editingAction.prompt}
+                  onChange={(e) => setEditingAction({ ...editingAction, prompt: e.target.value })}
+                  className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg text-xs font-mono focus:outline-none focus:border-rose-500"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                onClick={() => setShowActionModal(false)}
+                className="px-3 py-1.5 bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-200 rounded-lg text-xs font-medium cursor-pointer"
+              >
+                取消
+              </button>
+              <button
+                onClick={() => {
+                  const exists = config.actions.some((a) => a.id === editingAction.id);
+                  const updatedActions = exists
+                    ? config.actions.map((a) => (a.id === editingAction.id ? editingAction : a))
+                    : [...config.actions, editingAction];
+                  saveConfig({ ...config, actions: updatedActions });
+                  setShowActionModal(false);
+                }}
+                className="px-3.5 py-1.5 bg-rose-500 hover:bg-rose-600 text-white rounded-lg text-xs font-medium cursor-pointer"
+              >
+                保存
               </button>
             </div>
           </div>

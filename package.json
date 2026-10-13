@@ -3,26 +3,23 @@
   "productName": "Cherry Selection Lite",
   "version": "1.0.4",
   "description": "Lightweight, API-driven AI Selection Assistant for Windows",
-  "main": "dist-electron/main/index.js",
   "author": "Cherry Selection Lite Contributors",
   "license": "Apache-2.0",
   "scripts": {
     "dev": "vite",
     "build:vite": "vite build",
-    "build:electron": "tsc -p tsconfig.electron.json",
-    "build": "npm run build:vite && npm run build:electron",
-    "start": "electron dist-electron/main/index.js",
-    "pack:win": "npm run build && electron-builder --win --x64"
+    "build": "vite build",
+    "tauri": "tauri",
+    "tauri:dev": "npx @tauri-apps/cli dev",
+    "tauri:build": "npx @tauri-apps/cli build",
+    "pack:win": "npm run build:vite && npx @tauri-apps/cli build"
   },
   "devDependencies": {
-    "@electron/asar": "^4.3.1",
     "@types/node": "^22.10.1",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
-    "electron": "^33.2.1",
-    "electron-builder": "^25.1.8",
     "lucide-react": "^0.468.0",
     "png-to-ico": "^3.0.2",
     "postcss": "^8.4.49",
@@ -33,6 +30,6 @@
     "vite": "^6.0.3"
   },
   "dependencies": {
-    "node-gyp-build": "^4.8.4"
+    "@tauri-apps/api": "^2.1.1"
   }
 }
