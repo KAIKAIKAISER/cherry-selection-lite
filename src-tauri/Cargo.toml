@@ -12,10 +12,10 @@ name = "cherry_selection_lite_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2.12.3", features = [] }
+tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2.12.3", features = ["tray-icon"] }
+tauri = { version = "2.12", features = ["tray-icon"] }
 tauri-plugin-shell = "2"
 tauri-plugin-global-shortcut = "2"
 serde = { version = "1.0", features = ["derive"] }
