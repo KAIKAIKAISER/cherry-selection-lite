@@ -62,7 +62,7 @@ export const ToolbarWindow: React.FC = () => {
   const isCompact = config?.selection?.compact ?? false;
 
   return (
-    <div className="w-screen h-screen flex items-center justify-center p-1 bg-transparent select-none overflow-hidden">
+    <div className="w-screen h-screen flex items-center justify-start p-1 pl-2.5 bg-transparent select-none overflow-hidden">
       <div className="box-border inline-flex h-9 items-center rounded-full bg-white/95 dark:bg-zinc-850/95 border border-zinc-200/90 dark:border-zinc-700/80 shadow-[0_4px_16px_rgba(0,0,0,0.12)] px-2.5 gap-1.5 backdrop-blur-md whitespace-nowrap animate-in fade-in zoom-in-95 duration-100">
         {/* Left Cherry drag handle */}
         <div

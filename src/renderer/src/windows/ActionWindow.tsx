@@ -29,6 +29,7 @@ export const ActionWindow: React.FC = () => {
   const [copied, setCopied] = useState<boolean>(false);
   const [expandQuote, setExpandQuote] = useState<boolean>(false);
   const [followUpText, setFollowUpText] = useState<string>('');
+  const [selectedProviderId, setSelectedProviderId] = useState<string>('deepseek');
   const [selectedModelId, setSelectedModelId] = useState<string>('deepseek-chat');
   const [selectedModelName, setSelectedModelName] = useState<string>('DeepSeek-V3');
   const [showModelMenu, setShowModelMenu] = useState<boolean>(false);
@@ -43,15 +44,23 @@ export const ActionWindow: React.FC = () => {
       setIsPinned(cfg.actionWindow.autoPin);
       setOpacity(cfg.actionWindow.opacity || 100);
 
-      // Initialize default model
-      const activeProvider =
-        cfg.providers.find((p) => p.enabled && p.apiKey) ||
-        cfg.providers.find((p) => p.enabled) ||
-        cfg.providers[0];
+      // Initialize default model from config
+      const defTarget = cfg.defaultAssistantModel;
+      let foundProvider = cfg.providers.find((p) => p.id === defTarget?.providerId && p.enabled);
+      let foundModel = foundProvider?.models.find((m) => m.id === defTarget?.modelId && m.enabled !== false);
 
-      if (activeProvider && activeProvider.models.length > 0) {
-        setSelectedModelId(activeProvider.models[0].id);
-        setSelectedModelName(activeProvider.models[0].name || activeProvider.models[0].id);
+      if (!foundProvider || !foundModel) {
+        foundProvider =
+          cfg.providers.find((p) => p.enabled && p.apiKey) ||
+          cfg.providers.find((p) => p.enabled) ||
+          cfg.providers[0];
+        foundModel = foundProvider?.models.find((m) => m.enabled !== false) || foundProvider?.models[0];
+      }
+
+      if (foundProvider && foundModel) {
+        setSelectedProviderId(foundProvider.id);
+        setSelectedModelId(foundModel.id);
+        setSelectedModelName(foundModel.name || foundModel.id);
       }
     });
 
@@ -62,7 +71,34 @@ export const ActionWindow: React.FC = () => {
       setErrorMessage(null);
       setFollowUpText('');
 
-      startGeneration(actionId, sel, customPrompt);
+      window.electronAPI.getConfig().then((cfg) => {
+        setConfig(cfg);
+        const isTranslate = actionId === 'translate';
+        const def = (isTranslate && cfg.defaultTranslateModel?.providerId)
+          ? cfg.defaultTranslateModel
+          : cfg.defaultAssistantModel;
+
+        let prov = cfg.providers.find((p) => p.id === def?.providerId && p.enabled);
+        let mod = prov?.models.find((m) => m.id === def?.modelId && m.enabled !== false);
+
+        if (!prov || !mod) {
+          prov =
+            cfg.providers.find((p) => p.enabled && p.apiKey) ||
+            cfg.providers.find((p) => p.enabled) ||
+            cfg.providers[0];
+          mod = prov?.models.find((m) => m.enabled !== false) || prov?.models[0];
+        }
+
+        const pId = prov?.id || 'deepseek';
+        const mId = mod?.id || 'deepseek-chat';
+        const mName = mod?.name || mId;
+
+        setSelectedProviderId(pId);
+        setSelectedModelId(mId);
+        setSelectedModelName(mName);
+
+        startGeneration(actionId, sel, customPrompt, pId, mId);
+      });
     });
 
     const cleanupChunk = window.electronAPI.onLlmChunk((chunk) => {
@@ -89,28 +125,49 @@ export const ActionWindow: React.FC = () => {
     };
   }, []);
 
-  const getActiveProviderAndModel = (actionId: string) => {
+  const getActiveProviderAndModel = (
+    actionId: string,
+    targetProvId?: string,
+    targetModId?: string
+  ) => {
     if (!config) return null;
 
-    let targetProvider = config.providers.find((p) => p.enabled && p.apiKey);
-    if (!targetProvider) {
-      targetProvider = config.providers.find((p) => p.enabled) || config.providers[0];
-    }
-    if (!targetProvider) return null;
+    const provId = targetProvId || selectedProviderId;
+    const modId = targetModId || selectedModelId;
 
-    const targetModel = targetProvider.models.find((m) => m.id === selectedModelId) || targetProvider.models[0];
+    // 1. Try finding by target provider ID
+    let provider = config.providers.find((p) => p.id === provId && p.enabled);
+
+    // 2. If not found, find any enabled provider that owns this model ID
+    if (!provider) {
+      provider = config.providers.find((p) => p.enabled && p.models.some((m) => m.id === modId));
+    }
+
+    // 3. Fallback to first enabled provider with API key or first enabled
+    if (!provider) {
+      provider =
+        config.providers.find((p) => p.enabled && p.apiKey) ||
+        config.providers.find((p) => p.enabled) ||
+        config.providers[0];
+    }
+    if (!provider) return null;
+
+    const model = provider.models.find((m) => m.id === modId) || provider.models[0];
+    if (!model) return null;
 
     return {
-      provider: targetProvider,
-      model: targetModel?.id || 'deepseek-chat',
-      modelName: targetModel?.name || targetModel?.id || 'DeepSeek-V3',
+      provider,
+      model: model.id,
+      modelName: model.name || model.id,
     };
   };
 
   const startGeneration = (
     actionId: string,
     sel: SelectionPayload | null,
-    customPromptOverride?: string
+    customPromptOverride?: string,
+    targetProvId?: string,
+    targetModId?: string
   ) => {
     if (!sel || !sel.text) return;
 
@@ -130,8 +187,9 @@ export const ActionWindow: React.FC = () => {
       }
     }
 
-    const active = getActiveProviderAndModel(actionId);
+    const active = getActiveProviderAndModel(actionId, targetProvId, targetModId);
     if (active) {
+      setSelectedProviderId(active.provider.id);
       setSelectedModelName(active.modelName);
       setSelectedModelId(active.model);
 
@@ -145,6 +203,31 @@ export const ActionWindow: React.FC = () => {
     } else {
       setErrorMessage('未找到已启用的模型服务商，请在设置中配置 API Key。');
       setIsStreaming(false);
+    }
+  };
+
+  const handleSelectModel = (providerId: string, modelId: string, modelName: string) => {
+    setSelectedProviderId(providerId);
+    setSelectedModelId(modelId);
+    setSelectedModelName(modelName);
+    setShowModelMenu(false);
+
+    // Save selection to config
+    if (config) {
+      const isTranslate = currentActionId === 'translate';
+      const updatedConfig: AppConfig = {
+        ...config,
+        ...(isTranslate
+          ? { defaultTranslateModel: { providerId, modelId, modelName } }
+          : { defaultAssistantModel: { providerId, modelId, modelName } }),
+      };
+      setConfig(updatedConfig);
+      window.electronAPI.saveConfig(updatedConfig);
+    }
+
+    // Re-generate output with the newly selected model
+    if (selection && selection.text) {
+      startGeneration(currentActionId, selection, undefined, providerId, modelId);
     }
   };
 
@@ -197,9 +280,11 @@ export const ActionWindow: React.FC = () => {
       p.models
         .filter((m) => m.enabled !== false)
         .map((m) => ({
+          providerId: p.id,
           providerName: p.name,
           modelId: m.id,
-          modelName: m.name,
+          modelName: m.name || m.id,
+          hasKey: Boolean(p.apiKey && p.apiKey.trim().length > 0) || p.id === 'ollama',
         }))
     );
 
@@ -224,29 +309,48 @@ export const ActionWindow: React.FC = () => {
             <div className="relative">
               <button
                 onClick={() => setShowModelMenu(!showModelMenu)}
-                className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-zinc-200/60 dark:bg-zinc-800 text-[11px] text-zinc-700 dark:text-zinc-300 font-medium hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors cursor-pointer"
+                className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-zinc-100 dark:bg-zinc-800 text-[11px] text-zinc-700 dark:text-zinc-300 font-medium hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors cursor-pointer border border-zinc-200/60 dark:border-zinc-700/60"
+                title="点击切换 AI 模型"
               >
-                <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-                <span className="truncate max-w-[120px]">{selectedModelName}</span>
-                <ChevronDown className="w-3 h-3 text-zinc-400" />
+                <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0" />
+                <span className="truncate max-w-[130px]">{selectedModelName}</span>
+                <ChevronDown className="w-3 h-3 text-zinc-400 shrink-0" />
               </button>
 
-              {showModelMenu && availableModels.length > 0 && (
-                <div className="absolute right-0 top-full mt-1 w-56 max-h-60 overflow-y-auto bg-white dark:bg-zinc-850 rounded-xl shadow-xl border border-zinc-200 dark:border-zinc-700 z-50 p-1 divide-y divide-zinc-100 dark:divide-zinc-800">
-                  {availableModels.map((item) => (
-                    <button
-                      key={`${item.providerName}-${item.modelId}`}
-                      onClick={() => {
-                        setSelectedModelId(item.modelId);
-                        setSelectedModelName(item.modelName);
-                        setShowModelMenu(false);
-                      }}
-                      className="w-full text-left px-2.5 py-1.5 text-xs hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg flex flex-col"
-                    >
-                      <span className="font-medium text-zinc-800 dark:text-zinc-100 truncate">{item.modelName}</span>
-                      <span className="text-[10px] text-zinc-400 truncate">{item.providerName}</span>
-                    </button>
-                  ))}
+              {showModelMenu && (
+                <div className="absolute right-0 top-full mt-1.5 w-64 max-h-72 overflow-y-auto bg-white dark:bg-zinc-850 rounded-xl shadow-2xl border border-zinc-200 dark:border-zinc-700 z-50 p-1.5 divide-y divide-zinc-100 dark:divide-zinc-800">
+                  {availableModels.length === 0 ? (
+                    <div className="p-3 text-center text-xs text-zinc-400">
+                      暂无启用的可用模型，请在设置中配置服务商
+                    </div>
+                  ) : (
+                    availableModels.map((item) => {
+                      const isCurrent =
+                        item.providerId === selectedProviderId && item.modelId === selectedModelId;
+                      return (
+                        <button
+                          key={`${item.providerId}-${item.modelId}`}
+                          onClick={() => handleSelectModel(item.providerId, item.modelId, item.modelName)}
+                          className={`w-full text-left px-2.5 py-2 text-xs rounded-lg flex items-center justify-between transition-colors cursor-pointer ${
+                            isCurrent
+                              ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 font-medium'
+                              : 'hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-200'
+                          }`}
+                        >
+                          <div className="min-w-0 flex-1 pr-2">
+                            <div className="font-medium truncate">{item.modelName}</div>
+                            <div className="text-[10px] text-zinc-400 truncate flex items-center gap-1.5 mt-0.5">
+                              <span>{item.providerName}</span>
+                              {!item.hasKey && (
+                                <span className="text-amber-500 text-[9px]">(未配置 Key)</span>
+                              )}
+                            </div>
+                          </div>
+                          {isCurrent && <Check className="w-3.5 h-3.5 shrink-0 text-rose-500" />}
+                        </button>
+                      );
+                    })
+                  )}
                 </div>
               )}
             </div>

@@ -119,6 +119,23 @@ export const SettingsWindow: React.FC = () => {
     return BUILTIN_PROVIDERS.filter((p) => deletedIds.has(p.id));
   }, [config]);
 
+  // All enabled models across all enabled providers for default selection
+  const allEnabledModels = useMemo(() => {
+    if (!config) return [];
+    return config.providers
+      .filter((p) => p.enabled)
+      .flatMap((p) =>
+        p.models
+          .filter((m) => m.enabled !== false)
+          .map((m) => ({
+            providerId: p.id,
+            providerName: p.name,
+            modelId: m.id,
+            modelName: m.name || m.id,
+          }))
+      );
+  }, [config]);
+
   // Provider update helper
   const updateCurrentProvider = (patch: Partial<ProviderItem>) => {
     if (!config || !selectedProvider) return;
@@ -845,6 +862,83 @@ export const SettingsWindow: React.FC = () => {
                     })
                   }
                 />
+              </div>
+            </div>
+
+            {/* Model Defaults Settings */}
+            <div className="bg-white dark:bg-zinc-850 p-5 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-2xs space-y-4">
+              <div className="text-xs font-semibold text-zinc-900 dark:text-white">默认 AI 模型设置</div>
+
+              {/* Default Assistant Model */}
+              <div className="flex items-center justify-between py-2 border-b border-zinc-100 dark:border-zinc-800">
+                <div>
+                  <div className="text-xs font-medium text-zinc-800 dark:text-zinc-200">默认助手模型</div>
+                  <div className="text-[11px] text-zinc-400">常规划词动作（核心总结、深度润色、代码解析等）默认调用的模型</div>
+                </div>
+                <select
+                  value={`${config.defaultAssistantModel?.providerId || ''}:::${config.defaultAssistantModel?.modelId || ''}`}
+                  onChange={(e) => {
+                    const [pId, mId] = e.target.value.split(':::');
+                    const target = allEnabledModels.find((x) => x.providerId === pId && x.modelId === mId);
+                    if (target) {
+                      saveConfig({
+                        ...config,
+                        defaultAssistantModel: {
+                          providerId: target.providerId,
+                          modelId: target.modelId,
+                          modelName: target.modelName,
+                        },
+                      });
+                    }
+                  }}
+                  className="bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:border-rose-500 max-w-[260px] truncate"
+                >
+                  {allEnabledModels.length === 0 ? (
+                    <option value="">暂无可用模型，请先配置服务商</option>
+                  ) : (
+                    allEnabledModels.map((m) => (
+                      <option key={`ast-${m.providerId}-${m.modelId}`} value={`${m.providerId}:::${m.modelId}`}>
+                        {m.providerName} - {m.modelName}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+
+              {/* Default Translate Model */}
+              <div className="flex items-center justify-between py-2">
+                <div>
+                  <div className="text-xs font-medium text-zinc-800 dark:text-zinc-200">默认翻译模型</div>
+                  <div className="text-[11px] text-zinc-400">划词助手「智能翻译」动作默认调用的专用模型</div>
+                </div>
+                <select
+                  value={`${config.defaultTranslateModel?.providerId || ''}:::${config.defaultTranslateModel?.modelId || ''}`}
+                  onChange={(e) => {
+                    const [pId, mId] = e.target.value.split(':::');
+                    const target = allEnabledModels.find((x) => x.providerId === pId && x.modelId === mId);
+                    if (target) {
+                      saveConfig({
+                        ...config,
+                        defaultTranslateModel: {
+                          providerId: target.providerId,
+                          modelId: target.modelId,
+                          modelName: target.modelName,
+                        },
+                      });
+                    }
+                  }}
+                  className="bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:border-rose-500 max-w-[260px] truncate"
+                >
+                  {allEnabledModels.length === 0 ? (
+                    <option value="">暂无可用模型，请先配置服务商</option>
+                  ) : (
+                    allEnabledModels.map((m) => (
+                      <option key={`tra-${m.providerId}-${m.modelId}`} value={`${m.providerId}:::${m.modelId}`}>
+                        {m.providerName} - {m.modelName}
+                      </option>
+                    ))
+                  )}
+                </select>
               </div>
             </div>
 

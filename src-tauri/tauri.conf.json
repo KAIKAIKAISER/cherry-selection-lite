@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Cherry Selection Lite",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "identifier": "com.cherry.selection.lite",
   "build": {
     "frontendDist": "../dist",
@@ -15,8 +15,8 @@
         "label": "toolbar",
         "title": "Cherry Toolbar",
         "url": "index.html?window=toolbar",
-        "width": 420,
-        "height": 52,
+        "width": 820,
+        "height": 60,
         "decorations": false,
         "transparent": true,
         "alwaysOnTop": true,
