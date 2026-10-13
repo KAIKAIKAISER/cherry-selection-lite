@@ -11,9 +11,20 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
 
     let menu = Menu::with_items(app, &[&settings_item, &toggle_item, &quit_item])?;
 
-    let _tray = TrayIconBuilder::new()
+    let icon = app.default_window_icon().cloned().or_else(|| {
+        tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png")).ok()
+    });
+
+    let mut builder = TrayIconBuilder::new()
         .menu(&menu)
         .show_menu_on_left_click(false)
+        .tooltip("Cherry Selection Lite");
+
+    if let Some(i) = icon {
+        builder = builder.icon(i);
+    }
+
+    let _tray = builder
         .on_menu_event(move |app, event| match event.id.as_ref() {
             "settings" => {
                 if let Some(st) = app.get_webview_window("settings") {

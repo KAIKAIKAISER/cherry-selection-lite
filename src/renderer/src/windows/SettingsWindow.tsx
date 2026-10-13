@@ -571,28 +571,45 @@ export const SettingsWindow: React.FC = () => {
                   </div>
 
                   {/* Test Connection Button & Status */}
-                  <div className="pt-2 flex items-center justify-between border-t border-zinc-100 dark:border-zinc-800">
-                    <button
-                      onClick={handleTestConnection}
-                      disabled={testStatus.loading}
-                      className="flex items-center gap-1.5 px-3.5 py-1.5 bg-rose-500 hover:bg-rose-600 active:bg-rose-700 text-white rounded-lg text-xs font-medium transition-colors cursor-pointer disabled:opacity-50"
-                    >
-                      {testStatus.loading ? (
-                        <RotateCw className="w-3.5 h-3.5 animate-spin" />
-                      ) : (
-                        <Check className="w-3.5 h-3.5" />
+                  <div className="pt-3 border-t border-zinc-100 dark:border-zinc-800 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <button
+                        onClick={handleTestConnection}
+                        disabled={testStatus.loading}
+                        className="shrink-0 whitespace-nowrap flex items-center gap-2 px-3.5 py-1.5 bg-rose-500 hover:bg-rose-600 active:bg-rose-700 text-white rounded-lg text-xs font-medium transition-colors cursor-pointer disabled:opacity-50 shadow-xs"
+                      >
+                        <RotateCw className={`w-3.5 h-3.5 ${testStatus.loading ? 'animate-spin' : ''}`} />
+                        <span>测试连接</span>
+                      </button>
+
+                      {testStatus.loading && (
+                        <span className="text-xs text-zinc-400 flex items-center gap-1.5">
+                          正在测试接口响应...
+                        </span>
                       )}
-                      <span>测试连接</span>
-                    </button>
+                    </div>
 
                     {testStatus.message && (
                       <div
-                        className={`text-xs flex items-center gap-1.5 font-medium ${
-                          testStatus.success ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'
+                        className={`p-3 rounded-lg text-xs flex items-start gap-2.5 border transition-all ${
+                          testStatus.success
+                            ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800/40 text-emerald-700 dark:text-emerald-300'
+                            : 'bg-rose-50 dark:bg-rose-950/20 border-rose-200 dark:border-rose-800/40 text-rose-700 dark:text-rose-300'
                         }`}
                       >
-                        {testStatus.success ? <Check className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
-                        <span>{testStatus.message}</span>
+                        {testStatus.success ? (
+                          <Check className="w-4 h-4 shrink-0 text-emerald-500 mt-0.5" />
+                        ) : (
+                          <AlertCircle className="w-4 h-4 shrink-0 text-rose-500 mt-0.5" />
+                        )}
+                        <div className="flex-1 space-y-1 overflow-hidden min-w-0">
+                          <div className="font-semibold flex items-center gap-2">
+                            <span>{testStatus.success ? '连接测试正常' : '连接测试未通过'}</span>
+                          </div>
+                          <div className="font-mono text-[11px] leading-relaxed break-all select-text opacity-90">
+                            {testStatus.message}
+                          </div>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -612,7 +629,7 @@ export const SettingsWindow: React.FC = () => {
                       <button
                         onClick={handleSyncModels}
                         disabled={syncStatus}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 rounded-lg text-xs font-medium transition-colors cursor-pointer disabled:opacity-50"
+                        className="shrink-0 whitespace-nowrap flex items-center gap-1.5 px-3 py-1.5 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 rounded-lg text-xs font-medium transition-colors cursor-pointer disabled:opacity-50"
                       >
                         <RotateCw className={`w-3.5 h-3.5 ${syncStatus ? 'animate-spin' : ''}`} />
                         <span>获取模型列表</span>
@@ -620,7 +637,7 @@ export const SettingsWindow: React.FC = () => {
 
                       <button
                         onClick={() => setShowAddModelModal(true)}
-                        className="flex items-center gap-1 px-3 py-1.5 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 rounded-lg text-xs font-medium transition-colors cursor-pointer"
+                        className="shrink-0 whitespace-nowrap flex items-center gap-1 px-3 py-1.5 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 rounded-lg text-xs font-medium transition-colors cursor-pointer"
                       >
                         <Plus className="w-3.5 h-3.5" />
                         <span>添加模型</span>
@@ -630,14 +647,25 @@ export const SettingsWindow: React.FC = () => {
 
                   {syncFeedback && (
                     <div
-                      className={`p-2.5 rounded-lg text-xs flex items-center gap-2 ${
+                      className={`p-3 rounded-lg text-xs flex items-start gap-2.5 border transition-all ${
                         syncFeedback.success
-                          ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                          : 'bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400'
+                          ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800/40 text-emerald-700 dark:text-emerald-300'
+                          : 'bg-rose-50 dark:bg-rose-950/20 border-rose-200 dark:border-rose-800/40 text-rose-700 dark:text-rose-300'
                       }`}
                     >
-                      {syncFeedback.success ? <Check className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
-                      <span>{syncFeedback.message}</span>
+                      {syncFeedback.success ? (
+                        <Check className="w-4 h-4 shrink-0 text-emerald-500 mt-0.5" />
+                      ) : (
+                        <AlertCircle className="w-4 h-4 shrink-0 text-rose-500 mt-0.5" />
+                      )}
+                      <div className="flex-1 space-y-1 overflow-hidden min-w-0">
+                        <div className="font-semibold">
+                          {syncFeedback.success ? '模型列表同步成功' : '模型列表获取失败'}
+                        </div>
+                        <div className="font-mono text-[11px] leading-relaxed break-all select-text opacity-90">
+                          {syncFeedback.message}
+                        </div>
+                      </div>
                     </div>
                   )}
 

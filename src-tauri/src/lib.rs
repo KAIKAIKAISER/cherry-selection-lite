@@ -38,6 +38,9 @@ pub fn run() {
             let handle = app.handle();
             let _ = tray::setup_tray(handle);
 
+            // Start background selection and Ctrl key monitor
+            selection_hook::start_selection_monitor(handle);
+
             // Register default global hotkey Alt+S
             if let Ok(shortcut) = "Alt+S".parse::<Shortcut>() {
                 let app_handle = handle.clone();

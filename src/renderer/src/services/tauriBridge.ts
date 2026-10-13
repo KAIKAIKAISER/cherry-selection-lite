@@ -215,13 +215,25 @@ export const bridge: IElectronAPI = {
       });
       if (res.ok) {
         const json = await res.json();
-        const models = (json.data || []).map((m: any) => ({
-          id: m.id,
-          name: m.id,
-        }));
-        return { success: true, models };
+        const rawList = Array.isArray(json.data) ? json.data : Array.isArray(json.models) ? json.models : Array.isArray(json) ? json : [];
+        const models = rawList
+          .map((m: any) => ({
+            id: m.id || m.name || (typeof m === 'string' ? m : ''),
+            name: m.name || m.id || (typeof m === 'string' ? m : ''),
+          }))
+          .filter((m: any) => Boolean(m.id));
+        if (models.length > 0) {
+          return { success: true, models };
+        }
+        return { success: false, models: [], message: '未解析到可用模型数据' };
       }
-      return { success: false, models: [], message: `HTTP ${res.status}` };
+      const errText = await res.text();
+      let cleanMsg = `HTTP ${res.status}: ${res.statusText}`;
+      try {
+        const errJson = JSON.parse(errText);
+        cleanMsg = errJson.error?.message || errJson.message || errJson.detail?.error?.message || cleanMsg;
+      } catch {}
+      return { success: false, models: [], message: cleanMsg };
     } catch (err: any) {
       return { success: false, models: [], message: err.message };
     }
