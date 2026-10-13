@@ -1,13 +1,14 @@
 use std::thread;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SelectionPayload {
     pub text: String,
     pub x: i32,
     pub y: i32,
+    #[serde(default)]
     pub program_name: Option<String>,
 }
 
@@ -246,26 +247,47 @@ pub fn start_selection_monitor(app: &AppHandle) {
                     }
                 };
 
+                // 2. Check mouse state & dismiss toolbar if clicked outside
+                let is_lbutton_down = win_impl::is_lbutton_pressed();
+                let current_pos = win_impl::get_mouse_pos();
+                let is_click_down = is_lbutton_down && !lbutton_was_down;
+
+                if is_click_down && last_trigger_time.elapsed() >= Duration::from_millis(300) {
+                    if let Some(tb) = app_handle.get_webview_window("toolbar") {
+                        if tb.is_visible().unwrap_or(false) {
+                            if let Ok(pos) = tb.outer_position() {
+                                if let Ok(size) = tb.outer_size() {
+                                    let (mx, my) = current_pos;
+                                    let in_x = mx >= pos.x && mx <= pos.x + size.width as i32;
+                                    let in_y = my >= pos.y && my <= pos.y + size.height as i32;
+                                    if !in_x || !in_y {
+                                        let _ = tb.hide();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 if !enabled || trigger_mode == "shortcut" {
                     ctrl_hold_start = None;
                     ctrl_triggered = false;
-                    lbutton_was_down = false;
+                    lbutton_was_down = is_lbutton_down;
                     continue;
                 }
 
-                // 2. Ignore if foreground window belongs to our own app (avoid self-trigger)
+                // 3. Ignore if foreground window belongs to our own app (avoid self-trigger)
                 let fg_hwnd = win_impl::get_foreground_window();
                 let fg_pid = win_impl::get_window_pid(fg_hwnd);
                 if fg_pid == current_pid {
                     ctrl_hold_start = None;
                     ctrl_triggered = false;
+                    lbutton_was_down = is_lbutton_down;
                     continue;
                 }
 
-                // 3. Check key states
+                // 4. Check key states
                 let is_ctrl_down = win_impl::is_ctrl_pressed();
-                let is_lbutton_down = win_impl::is_lbutton_pressed();
-                let current_pos = win_impl::get_mouse_pos();
                 let can_trigger = last_trigger_time.elapsed() >= Duration::from_millis(300);
 
                 if trigger_mode == "ctrlkey" {

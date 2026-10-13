@@ -1,6 +1,6 @@
 [package]
 name = "cherry-selection-lite"
-version = "1.0.6"
+version = "1.0.7"
 description = "Cherry Studio AI Selection Assistant for Windows (Lightweight)"
 authors = ["Cherry Selection Lite Contributors"]
 license = "Apache-2.0"

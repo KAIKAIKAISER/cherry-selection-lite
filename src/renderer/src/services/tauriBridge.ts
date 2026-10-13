@@ -247,7 +247,11 @@ export const bridge: IElectronAPI = {
 
   showAction: (data) => {
     if (isTauri) {
-      invoke('show_action', { actionId: data.actionId, customPrompt: data.customPrompt }).catch(console.error);
+      invoke('show_action', {
+        actionId: data.actionId,
+        customPrompt: data.customPrompt,
+        selection: data.selection,
+      }).catch(console.error);
     } else {
       window.dispatchEvent(new CustomEvent('action_start', { detail: data }));
     }
@@ -410,6 +414,24 @@ export const bridge: IElectronAPI = {
     const handler = (e: any) => callback(e.detail);
     window.addEventListener('action_start', handler);
     return () => window.removeEventListener('action_start', handler);
+  },
+
+  onConfigChanged: (callback) => {
+    if (isTauri) {
+      let unlistenFn: (() => void) | null = null;
+      listen<AppConfig>('config_changed', (event) => {
+        callback(event.payload);
+      }).then((un) => {
+        unlistenFn = un;
+      });
+      return () => {
+        unlistenFn?.();
+      };
+    }
+
+    const handler = (e: any) => callback(e.detail);
+    window.addEventListener('config_changed', handler);
+    return () => window.removeEventListener('config_changed', handler);
   },
 
   onLlmChunk: (callback) => {

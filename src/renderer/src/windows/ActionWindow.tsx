@@ -37,23 +37,24 @@ export const ActionWindow: React.FC = () => {
   const [showOpacitySlider, setShowOpacitySlider] = useState<boolean>(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const configRef = useRef<AppConfig | null>(null);
 
   useEffect(() => {
-    window.electronAPI.getConfig().then((cfg) => {
+    const handleUpdateConfig = (cfg: AppConfig) => {
+      configRef.current = cfg;
       setConfig(cfg);
       setIsPinned(cfg.actionWindow.autoPin);
       setOpacity(cfg.actionWindow.opacity || 100);
 
-      // Initialize default model from config
       const defTarget = cfg.defaultAssistantModel;
-      let foundProvider = cfg.providers.find((p) => p.id === defTarget?.providerId && p.enabled);
+      const validProviders = (cfg.providers || []).filter(
+        (p) => p.enabled && (Boolean(p.apiKey && p.apiKey.trim().length > 0) || p.id === 'ollama')
+      );
+      let foundProvider = validProviders.find((p) => p.id === defTarget?.providerId);
       let foundModel = foundProvider?.models.find((m) => m.id === defTarget?.modelId && m.enabled !== false);
 
       if (!foundProvider || !foundModel) {
-        foundProvider =
-          cfg.providers.find((p) => p.enabled && p.apiKey) ||
-          cfg.providers.find((p) => p.enabled) ||
-          cfg.providers[0];
+        foundProvider = validProviders[0];
         foundModel = foundProvider?.models.find((m) => m.enabled !== false) || foundProvider?.models[0];
       }
 
@@ -62,7 +63,10 @@ export const ActionWindow: React.FC = () => {
         setSelectedModelId(foundModel.id);
         setSelectedModelName(foundModel.name || foundModel.id);
       }
-    });
+    };
+
+    window.electronAPI.getConfig().then(handleUpdateConfig);
+    const cleanupConfig = window.electronAPI.onConfigChanged?.(handleUpdateConfig);
 
     const cleanupAction = window.electronAPI.onActionStart(({ actionId, customPrompt, selection: sel }) => {
       setCurrentActionId(actionId);
@@ -72,32 +76,38 @@ export const ActionWindow: React.FC = () => {
       setFollowUpText('');
 
       window.electronAPI.getConfig().then((cfg) => {
+        configRef.current = cfg;
         setConfig(cfg);
         const isTranslate = actionId === 'translate';
         const def = (isTranslate && cfg.defaultTranslateModel?.providerId)
           ? cfg.defaultTranslateModel
           : cfg.defaultAssistantModel;
 
-        let prov = cfg.providers.find((p) => p.id === def?.providerId && p.enabled);
+        const validProviders = (cfg.providers || []).filter(
+          (p) => p.enabled && (Boolean(p.apiKey && p.apiKey.trim().length > 0) || p.id === 'ollama')
+        );
+
+        let prov = validProviders.find((p) => p.id === def?.providerId);
         let mod = prov?.models.find((m) => m.id === def?.modelId && m.enabled !== false);
 
         if (!prov || !mod) {
-          prov =
-            cfg.providers.find((p) => p.enabled && p.apiKey) ||
-            cfg.providers.find((p) => p.enabled) ||
-            cfg.providers[0];
+          prov = validProviders[0];
           mod = prov?.models.find((m) => m.enabled !== false) || prov?.models[0];
         }
 
-        const pId = prov?.id || 'deepseek';
-        const mId = mod?.id || 'deepseek-chat';
+        const pId = prov?.id;
+        const mId = mod?.id;
         const mName = mod?.name || mId;
 
-        setSelectedProviderId(pId);
-        setSelectedModelId(mId);
-        setSelectedModelName(mName);
-
-        startGeneration(actionId, sel, customPrompt, pId, mId);
+        if (pId && mId) {
+          setSelectedProviderId(pId);
+          setSelectedModelId(mId);
+          setSelectedModelName(mName);
+          startGeneration(actionId, sel, customPrompt, pId, mId, cfg);
+        } else {
+          setErrorMessage('未找到已启用并配置 API Key 的模型服务商，请在设置中配置服务商。');
+          setIsStreaming(false);
+        }
       });
     });
 
@@ -118,6 +128,7 @@ export const ActionWindow: React.FC = () => {
     });
 
     return () => {
+      cleanupConfig?.();
       cleanupAction();
       cleanupChunk();
       cleanupDone();
@@ -128,31 +139,32 @@ export const ActionWindow: React.FC = () => {
   const getActiveProviderAndModel = (
     actionId: string,
     targetProvId?: string,
-    targetModId?: string
+    targetModId?: string,
+    cfgOverride?: AppConfig
   ) => {
-    if (!config) return null;
+    const currentCfg = cfgOverride || configRef.current || config;
+    if (!currentCfg) return null;
 
     const provId = targetProvId || selectedProviderId;
     const modId = targetModId || selectedModelId;
 
-    // 1. Try finding by target provider ID
-    let provider = config.providers.find((p) => p.id === provId && p.enabled);
+    const validProviders = (currentCfg.providers || []).filter(
+      (p) => p.enabled && (Boolean(p.apiKey && p.apiKey.trim().length > 0) || p.id === 'ollama')
+    );
 
-    // 2. If not found, find any enabled provider that owns this model ID
+    let provider = validProviders.find((p) => p.id === provId);
     if (!provider) {
-      provider = config.providers.find((p) => p.enabled && p.models.some((m) => m.id === modId));
+      provider = validProviders.find((p) => p.models.some((m) => m.id === modId && m.enabled !== false));
     }
-
-    // 3. Fallback to first enabled provider with API key or first enabled
     if (!provider) {
-      provider =
-        config.providers.find((p) => p.enabled && p.apiKey) ||
-        config.providers.find((p) => p.enabled) ||
-        config.providers[0];
+      provider = validProviders[0];
     }
     if (!provider) return null;
 
-    const model = provider.models.find((m) => m.id === modId) || provider.models[0];
+    const model =
+      provider.models.find((m) => m.id === modId && m.enabled !== false) ||
+      provider.models.find((m) => m.enabled !== false) ||
+      provider.models[0];
     if (!model) return null;
 
     return {
@@ -167,7 +179,8 @@ export const ActionWindow: React.FC = () => {
     sel: SelectionPayload | null,
     customPromptOverride?: string,
     targetProvId?: string,
-    targetModId?: string
+    targetModId?: string,
+    cfgOverride?: AppConfig
   ) => {
     if (!sel || !sel.text) return;
 
@@ -175,11 +188,13 @@ export const ActionWindow: React.FC = () => {
     setErrorMessage(null);
     setResultText('');
 
+    const currentCfg = cfgOverride || configRef.current || config;
+
     let prompt = '';
     if (customPromptOverride) {
       prompt = customPromptOverride.replace('{{text}}', sel.text);
     } else {
-      const action = config?.actions?.find((a) => a.id === actionId);
+      const action = currentCfg?.actions?.find((a) => a.id === actionId);
       if (action && action.prompt) {
         prompt = action.prompt.replace('{{text}}', sel.text);
       } else {
@@ -187,7 +202,7 @@ export const ActionWindow: React.FC = () => {
       }
     }
 
-    const active = getActiveProviderAndModel(actionId, targetProvId, targetModId);
+    const active = getActiveProviderAndModel(actionId, targetProvId, targetModId, currentCfg || undefined);
     if (active) {
       setSelectedProviderId(active.provider.id);
       setSelectedModelName(active.modelName);
@@ -201,7 +216,7 @@ export const ActionWindow: React.FC = () => {
         model: active.model,
       });
     } else {
-      setErrorMessage('未找到已启用的模型服务商，请在设置中配置 API Key。');
+      setErrorMessage('未找到已启用并配置 API Key 的模型服务商，请在设置中配置服务商。');
       setIsStreaming(false);
     }
   };
@@ -273,9 +288,13 @@ export const ActionWindow: React.FC = () => {
   const currentAction = config?.actions?.find((a) => a.id === currentActionId);
   const actionTitle = currentAction ? currentAction.name : 'AI 助手';
 
-  // Gather all available enabled models across enabled providers for switching
+  // Filter to ONLY models from enabled providers that have an API key (or ollama) and are enabled
   const availableModels = (config?.providers || [])
-    .filter((p) => p.enabled)
+    .filter(
+      (p) =>
+        p.enabled &&
+        (Boolean(p.apiKey && p.apiKey.trim().length > 0) || p.id === 'ollama')
+    )
     .flatMap((p) =>
       p.models
         .filter((m) => m.enabled !== false)
@@ -284,7 +303,6 @@ export const ActionWindow: React.FC = () => {
           providerName: p.name,
           modelId: m.id,
           modelName: m.name || m.id,
-          hasKey: Boolean(p.apiKey && p.apiKey.trim().length > 0) || p.id === 'ollama',
         }))
     );
 
@@ -321,7 +339,7 @@ export const ActionWindow: React.FC = () => {
                 <div className="absolute right-0 top-full mt-1.5 w-64 max-h-72 overflow-y-auto bg-white dark:bg-zinc-850 rounded-xl shadow-2xl border border-zinc-200 dark:border-zinc-700 z-50 p-1.5 divide-y divide-zinc-100 dark:divide-zinc-800">
                   {availableModels.length === 0 ? (
                     <div className="p-3 text-center text-xs text-zinc-400">
-                      暂无启用的可用模型，请在设置中配置服务商
+                      暂无可用模型，请先在设置中启用服务商并配置 API Key
                     </div>
                   ) : (
                     availableModels.map((item) => {
@@ -341,9 +359,6 @@ export const ActionWindow: React.FC = () => {
                             <div className="font-medium truncate">{item.modelName}</div>
                             <div className="text-[10px] text-zinc-400 truncate flex items-center gap-1.5 mt-0.5">
                               <span>{item.providerName}</span>
-                              {!item.hasKey && (
-                                <span className="text-amber-500 text-[9px]">(未配置 Key)</span>
-                              )}
                             </div>
                           </div>
                           {isCurrent && <Check className="w-3.5 h-3.5 shrink-0 text-rose-500" />}

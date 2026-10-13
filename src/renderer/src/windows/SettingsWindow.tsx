@@ -119,11 +119,15 @@ export const SettingsWindow: React.FC = () => {
     return BUILTIN_PROVIDERS.filter((p) => deletedIds.has(p.id));
   }, [config]);
 
-  // All enabled models across all enabled providers for default selection
+  // All enabled models across all enabled providers with valid API keys for default selection
   const allEnabledModels = useMemo(() => {
     if (!config) return [];
     return config.providers
-      .filter((p) => p.enabled)
+      .filter(
+        (p) =>
+          p.enabled &&
+          (Boolean(p.apiKey && p.apiKey.trim().length > 0) || p.id === 'ollama')
+      )
       .flatMap((p) =>
         p.models
           .filter((m) => m.enabled !== false)
@@ -894,7 +898,7 @@ export const SettingsWindow: React.FC = () => {
                   className="bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:border-rose-500 max-w-[260px] truncate"
                 >
                   {allEnabledModels.length === 0 ? (
-                    <option value="">暂无可用模型，请先配置服务商</option>
+                    <option value="">暂无可用模型，请先在模型服务中启用并配置 API Key</option>
                   ) : (
                     allEnabledModels.map((m) => (
                       <option key={`ast-${m.providerId}-${m.modelId}`} value={`${m.providerId}:::${m.modelId}`}>
@@ -930,7 +934,7 @@ export const SettingsWindow: React.FC = () => {
                   className="bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg px-2.5 py-1 text-xs focus:outline-none focus:border-rose-500 max-w-[260px] truncate"
                 >
                   {allEnabledModels.length === 0 ? (
-                    <option value="">暂无可用模型，请先配置服务商</option>
+                    <option value="">暂无可用模型，请先在模型服务中启用并配置 API Key</option>
                   ) : (
                     allEnabledModels.map((m) => (
                       <option key={`tra-${m.providerId}-${m.modelId}`} value={`${m.providerId}:::${m.modelId}`}>

@@ -1,4 +1,4 @@
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use std::sync::Mutex;
 use crate::config::{load_config, save_config, AppConfig};
 use crate::stream::{run_chat_stream, run_fetch_models, run_test_connection, FetchedModel, TestConnectionResult};
@@ -14,10 +14,11 @@ pub fn get_config(state: State<'_, AppState>) -> Result<AppConfig, String> {
 }
 
 #[tauri::command]
-pub fn set_config(state: State<'_, AppState>, new_config: AppConfig) -> Result<AppConfig, String> {
+pub fn set_config(app: AppHandle, state: State<'_, AppState>, new_config: AppConfig) -> Result<AppConfig, String> {
     save_config(&new_config)?;
     let mut cfg = state.config.lock().map_err(|e| e.to_string())?;
     *cfg = new_config.clone();
+    let _ = app.emit("config_changed", &new_config);
     Ok(new_config)
 }
 
@@ -43,14 +44,31 @@ pub fn hide_toolbar(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn show_action(app: AppHandle, _action_id: String, _custom_prompt: Option<String>) -> Result<(), String> {
+pub fn show_action(
+    app: AppHandle,
+    action_id: String,
+    custom_prompt: Option<String>,
+    selection: Option<crate::selection_hook::SelectionPayload>,
+) -> Result<(), String> {
     if let Some(tb) = app.get_webview_window("toolbar") {
         let _ = tb.hide();
     }
     if let Some(act) = app.get_webview_window("action") {
+        if let Some(ref sel) = selection {
+            let _ = act.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
+                x: sel.x.saturating_add(8),
+                y: sel.y.saturating_add(24),
+            }));
+        }
         let _ = act.show();
         let _ = act.set_focus();
     }
+    let payload = serde_json::json!({
+        "actionId": action_id,
+        "customPrompt": custom_prompt,
+        "selection": selection,
+    });
+    let _ = app.emit("action_start", &payload);
     Ok(())
 }
 

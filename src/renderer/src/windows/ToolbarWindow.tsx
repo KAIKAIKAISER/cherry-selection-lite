@@ -24,11 +24,16 @@ export const ToolbarWindow: React.FC = () => {
         window.electronAPI.hideToolbar();
       }
     };
+    const handleBlur = () => {
+      window.electronAPI.hideToolbar();
+    };
     window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('blur', handleBlur);
 
     return () => {
       cleanupSelection();
       window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('blur', handleBlur);
     };
   }, []);
 
@@ -55,7 +60,7 @@ export const ToolbarWindow: React.FC = () => {
     }
 
     // Trigger result window for AI actions
-    window.electronAPI.showAction({ actionId: action.id });
+    window.electronAPI.showAction({ actionId: action.id, selection });
   };
 
   const enabledActions = config?.actions?.filter((a) => a.enabled) || [];

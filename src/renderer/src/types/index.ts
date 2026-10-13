@@ -97,7 +97,7 @@ export interface IElectronAPI {
   testProvider: (data: { baseUrl: string; apiKey: string; modelId?: string }) => Promise<TestResult>;
   syncModels: (data: { baseUrl: string; apiKey: string; providerId?: string }) => Promise<SyncModelsResult>;
   hideToolbar: () => void;
-  showAction: (data: { actionId: string; customPrompt?: string }) => void;
+  showAction: (data: { actionId: string; customPrompt?: string; selection?: SelectionPayload }) => void;
   hideAction: () => void;
   pinAction: (pinned: boolean) => void;
   openSettings: () => void;
@@ -108,6 +108,7 @@ export interface IElectronAPI {
   stopChatStream: () => void;
   onSelectionUpdated: (callback: (payload: SelectionPayload) => void) => () => void;
   onActionStart: (callback: (data: { actionId: string; customPrompt?: string; selection: SelectionPayload }) => void) => () => void;
+  onConfigChanged?: (callback: (cfg: AppConfig) => void) => () => void;
   onLlmChunk: (callback: (chunk: string) => void) => () => void;
   onLlmDone: (callback: () => void) => () => void;
   onLlmError: (callback: (error: string) => void) => () => void;
