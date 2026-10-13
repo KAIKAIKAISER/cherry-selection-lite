@@ -123,30 +123,59 @@ function saveLocalConfig(cfg: AppConfig) {
 
 export const bridge: IElectronAPI = {
   getConfig: async () => {
+    let tauriConfig: AppConfig | null = null;
     if (isTauri) {
       try {
         const cfg = await invoke<AppConfig>('get_config');
-        if (cfg && cfg.providers && cfg.providers.length > 0) {
-          return cfg;
+        if (cfg) {
+          tauriConfig = cfg;
         }
       } catch (err) {
         console.warn('Tauri get_config error, falling back:', err);
       }
     }
-    return getLocalConfig();
+
+    const localConfig = getLocalConfig();
+    const baseConfig =
+      tauriConfig && tauriConfig.providers && tauriConfig.providers.length > 0
+        ? tauriConfig
+        : localConfig;
+
+    const currentMap = new Map((baseConfig.providers || []).map((p) => [p.id, p]));
+
+    // Preserve any custom or configured providers from localStorage
+    for (const lp of localConfig.providers || []) {
+      if (!currentMap.has(lp.id) && (!lp.isBuiltIn || (lp.apiKey && lp.apiKey.trim().length > 0))) {
+        currentMap.set(lp.id, lp);
+      }
+    }
+
+    const mergedProviders = Array.from(currentMap.values());
+    const finalConfig: AppConfig = {
+      ...baseConfig,
+      providers: mergedProviders,
+    };
+
+    saveLocalConfig(finalConfig);
+    if (isTauri && (!tauriConfig || !tauriConfig.providers || tauriConfig.providers.length !== mergedProviders.length)) {
+      invoke('set_config', { newConfig: finalConfig }).catch(console.error);
+    }
+
+    return finalConfig;
   },
 
   setConfig: async (patch: Partial<AppConfig>) => {
     const current = await bridge.getConfig();
     const updated: AppConfig = { ...current, ...patch };
+    saveLocalConfig(updated);
     if (isTauri) {
       try {
-        return await invoke<AppConfig>('set_config', { newConfig: updated });
+        const saved = await invoke<AppConfig>('set_config', { newConfig: updated });
+        if (saved) return saved;
       } catch (err) {
         console.warn('Tauri set_config error:', err);
       }
     }
-    saveLocalConfig(updated);
     return updated;
   },
 

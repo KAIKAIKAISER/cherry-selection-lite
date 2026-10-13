@@ -72,8 +72,11 @@ export const SettingsWindow: React.FC = () => {
         }
       }
 
-      // Auto-enable any provider that already has an API key configured
+      // Auto-enable any provider that already has an API key configured or is custom
       for (const p of currentMap.values()) {
+        if (!p.isBuiltIn && p.enabled === undefined) {
+          p.enabled = true;
+        }
         if (p.apiKey && p.apiKey.trim().length > 0 && !p.enabled) {
           p.enabled = true;
         }
@@ -83,6 +86,7 @@ export const SettingsWindow: React.FC = () => {
       const updatedConfig = { ...cfg, providers: mergedProviders, deletedProviderIds: deleted };
 
       setConfig(updatedConfig);
+      saveConfig(updatedConfig);
       if (mergedProviders.length > 0 && !currentMap.has(selectedProviderId)) {
         setSelectedProviderId(mergedProviders[0].id);
       }
@@ -102,7 +106,12 @@ export const SettingsWindow: React.FC = () => {
       if (config.deletedProviderIds?.includes(p.id)) return false;
 
       // Filter tab
-      if (providerFilterTab === 'enabled' && !p.enabled) return false;
+      if (providerFilterTab === 'enabled') {
+        const isCustom = !p.isBuiltIn;
+        const hasKey = Boolean(p.apiKey && p.apiKey.trim().length > 0);
+        const isLocal = p.id === 'ollama' || p.baseUrl?.includes('localhost') || p.baseUrl?.includes('127.0.0.1');
+        if (!p.enabled && !hasKey && !isLocal && !isCustom) return false;
+      }
       if (providerFilterTab === 'custom' && p.isBuiltIn) return false;
 
       // Search
@@ -126,20 +135,27 @@ export const SettingsWindow: React.FC = () => {
     return BUILTIN_PROVIDERS.filter((p) => deletedIds.has(p.id));
   }, [config]);
 
-  // All enabled models across all enabled providers with valid API keys for default selection
+  // All enabled models across all enabled / custom providers for default selection
   const allEnabledModels = useMemo(() => {
     if (!config) return [];
+    const deletedIds = config.deletedProviderIds || [];
     return config.providers
       .filter((p) => {
-        const hasKey = Boolean(p.apiKey && p.apiKey.trim().length > 0) || p.id === 'ollama';
-        return hasKey;
+        if (deletedIds.includes(p.id)) return false;
+        const isCustom = !p.isBuiltIn;
+        const hasKey = Boolean(p.apiKey && p.apiKey.trim().length > 0);
+        const isLocal = p.id === 'ollama' || p.baseUrl?.includes('localhost') || p.baseUrl?.includes('127.0.0.1');
+        return p.enabled || isCustom || hasKey || isLocal;
       })
       .flatMap((p) => {
-        const models =
-          p.models && p.models.length > 0
-            ? p.models.filter((m) => m.enabled !== false)
-            : [{ id: 'default', name: `${p.name} (默认模型)` }];
-        return models.map((m) => ({
+        let active = (p.models || []).filter((m) => m.enabled !== false);
+        if (active.length === 0 && (p.models || []).length > 0) {
+          active = p.models;
+        }
+        if (active.length === 0) {
+          active = [{ id: 'default', name: `${p.name} (默认模型)` }];
+        }
+        return active.map((m) => ({
           providerId: p.id,
           providerName: p.name,
           modelId: m.id,
@@ -272,19 +288,20 @@ export const SettingsWindow: React.FC = () => {
   // Add Custom Provider
   const handleAddCustomProvider = () => {
     if (!config || !customProviderForm.name.trim() || !customProviderForm.baseUrl.trim()) return;
+    const name = customProviderForm.name.trim();
     const id = customProviderForm.id.trim() || `custom-${Date.now()}`;
     const newProvider: ProviderItem = {
       id,
-      name: customProviderForm.name.trim(),
+      name,
       baseUrl: customProviderForm.baseUrl.trim(),
       apiKey: customProviderForm.apiKey.trim(),
       enabled: true,
       isBuiltIn: false,
-      models: [{ id: 'default', name: 'Default Model', group: 'custom', enabled: true }],
+      models: [{ id: 'default', name: `${name} (默认模型)`, group: id, enabled: true }],
     };
     saveConfig({
       ...config,
-      providers: [newProvider, ...config.providers],
+      providers: [newProvider, ...config.providers.filter((p) => p.id !== id)],
     });
     setSelectedProviderId(id);
     setShowCustomProviderModal(false);
@@ -1302,7 +1319,8 @@ export const SettingsWindow: React.FC = () => {
                     group: selectedProvider.id,
                     enabled: true,
                   };
-                  updateCurrentProvider({ models: [newModel, ...selectedProvider.models] });
+                  const existing = (selectedProvider.models || []).filter((m) => m.id !== newModel.id);
+                  updateCurrentProvider({ models: [newModel, ...existing], enabled: true });
                   setShowAddModelModal(false);
                   setNewModelForm({ id: '', name: '', group: 'custom' });
                 }}

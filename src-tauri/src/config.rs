@@ -3,6 +3,7 @@ use std::fs;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProviderModel {
     pub id: String,
     pub name: String,
@@ -13,10 +14,11 @@ pub struct ProviderModel {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProviderWebsite {
     #[serde(default)]
     pub official: Option<String>,
-    #[serde(default)]
+    #[serde(default, alias = "api_key")]
     pub api_key: Option<String>,
     #[serde(default)]
     pub docs: Option<String>,
@@ -25,77 +27,86 @@ pub struct ProviderWebsite {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProviderItem {
     pub id: String,
     pub name: String,
     #[serde(default)]
     pub description: Option<String>,
+    #[serde(alias = "base_url")]
     pub base_url: String,
-    #[serde(default)]
+    #[serde(default, alias = "default_base_url")]
     pub default_base_url: Option<String>,
-    #[serde(default)]
+    #[serde(default, alias = "api_key")]
     pub api_key: String,
-    #[serde(default)]
+    #[serde(default, alias = "proxy_url")]
     pub proxy_url: Option<String>,
     #[serde(default = "default_false")]
     pub enabled: bool,
-    #[serde(default = "default_false")]
+    #[serde(default = "default_false", alias = "is_built_in")]
     pub is_built_in: bool,
     #[serde(default)]
     pub website: Option<ProviderWebsite>,
-    #[serde(default)]
+    #[serde(default, alias = "default_chat_endpoint")]
     pub default_chat_endpoint: Option<String>,
     #[serde(default)]
     pub models: Vec<ProviderModel>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ActionItem {
     pub id: String,
     pub name: String,
     pub icon: String,
     pub prompt: String,
     pub enabled: bool,
-    #[serde(default = "default_false")]
+    #[serde(default = "default_false", alias = "is_built_in")]
     pub is_built_in: bool,
-    #[serde(default)]
+    #[serde(default, alias = "search_engine")]
     pub search_engine: Option<String>,
-    #[serde(default)]
+    #[serde(default, alias = "model_override")]
     pub model_override: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DefaultModelSelection {
+    #[serde(alias = "provider_id")]
     pub provider_id: String,
+    #[serde(alias = "model_id")]
     pub model_id: String,
+    #[serde(alias = "model_name")]
     pub model_name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SelectionConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,
-    #[serde(default = "default_trigger_mode")]
+    #[serde(default = "default_trigger_mode", alias = "trigger_mode")]
     pub trigger_mode: String, // "selection" | "ctrlkey" | "shortcut"
     #[serde(default = "default_shortcut")]
     pub shortcut: String, // "Alt+S"
     #[serde(default = "default_false")]
     pub compact: bool,
-    #[serde(default)]
+    #[serde(default, alias = "filter_list")]
     pub filter_list: Vec<String>,
-    #[serde(default = "default_filter_mode")]
+    #[serde(default = "default_filter_mode", alias = "filter_mode")]
     pub filter_mode: String, // "default" | "include" | "exclude"
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ActionWindowConfig {
-    #[serde(default = "default_true")]
+    #[serde(default = "default_true", alias = "follow_toolbar")]
     pub follow_toolbar: bool,
-    #[serde(default = "default_false")]
+    #[serde(default = "default_false", alias = "remember_win_size")]
     pub remember_win_size: bool,
-    #[serde(default = "default_false")]
+    #[serde(default = "default_false", alias = "auto_close")]
     pub auto_close: bool,
-    #[serde(default = "default_false")]
+    #[serde(default = "default_false", alias = "auto_pin")]
     pub auto_pin: bool,
     #[serde(default = "default_opacity")]
     pub opacity: f64,
@@ -106,18 +117,19 @@ pub struct ActionWindowConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AppConfig {
     #[serde(default)]
     pub providers: Vec<ProviderItem>,
-    #[serde(default)]
+    #[serde(default, alias = "deleted_provider_ids")]
     pub deleted_provider_ids: Vec<String>,
-    #[serde(default = "default_model_selection")]
+    #[serde(default = "default_model_selection", alias = "default_assistant_model")]
     pub default_assistant_model: DefaultModelSelection,
-    #[serde(default = "default_model_selection")]
+    #[serde(default = "default_model_selection", alias = "default_translate_model")]
     pub default_translate_model: DefaultModelSelection,
     #[serde(default)]
     pub selection: SelectionConfig,
-    #[serde(default)]
+    #[serde(default, alias = "action_window")]
     pub action_window: ActionWindowConfig,
     #[serde(default)]
     pub actions: Vec<ActionItem>,
@@ -261,10 +273,29 @@ pub fn load_config() -> AppConfig {
     if path.exists() {
         if let Ok(content) = fs::read_to_string(&path) {
             if let Ok(cfg) = serde_json::from_str::<AppConfig>(&content) {
-                return cfg;
+                if !cfg.providers.is_empty() {
+                    return cfg;
+                }
             }
         }
     }
+
+    // Try fallback from legacy CherrySelectionLite path
+    if let Some(mut legacy) = dirs_next::data_dir() {
+        legacy.push("CherrySelectionLite");
+        legacy.push("config.json");
+        if legacy.exists() {
+            if let Ok(content) = fs::read_to_string(&legacy) {
+                if let Ok(legacy_cfg) = serde_json::from_str::<AppConfig>(&content) {
+                    if !legacy_cfg.providers.is_empty() {
+                        let _ = save_config(&legacy_cfg);
+                        return legacy_cfg;
+                    }
+                }
+            }
+        }
+    }
+
     let default_cfg = AppConfig::default();
     let _ = save_config(&default_cfg);
     default_cfg
